@@ -1,0 +1,51 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+
+# Python & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Database & Runtime Data
+server/backend/*.db
+server/backend/*.db-wal
+server/backend/*.db-shm
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
+# Logs, caches, and local tooling
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.DS_Store
+.idea/
+.vscode/
+
+# Build Artifacts
+client/dist/
+client/build/
+*.spec
+
+#Open-db folder
+/open-db

@@ -1,0 +1,10 @@
+# server/backend/requirements.txt
+
+# The core web framework
+fastapi
+
+# The ASGI server required to run FastAPI
+uvicorn[standard]
+
+# Data validation (used by FastAPI under the hood for your JSON payloads)
+pydantic
