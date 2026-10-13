@@ -45,6 +45,7 @@ htmlcov/
 # Build Artifacts
 client/dist/
 client/build/
+client/reports/
 *.spec
 
 #Open-db folder
