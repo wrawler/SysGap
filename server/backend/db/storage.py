@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
+from azure.core.exceptions import ResourceNotFoundError
+
 
 class ReportStore(Protocol):
     def save(self, report_id: str, report: dict[str, Any]) -> None: ...
@@ -49,10 +51,8 @@ class AzureReportStore:
     def get(self, report_id: str) -> dict[str, Any] | None:
         try:
             blob = self.blob_container.download_blob(f"{report_id}.json").readall()
-        except Exception as exc:
-            if getattr(exc, "status_code", None) == 404:
-                return None
-            raise
+        except ResourceNotFoundError:
+            return None
         return json.loads(blob)
 
 

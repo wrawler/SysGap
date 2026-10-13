@@ -7,23 +7,18 @@ from typing import Any
 
 from shared.rules_engine import evaluate_gaming_telemetry
 from db.storage import create_report_store, utc_now
-from db.catalog_pipeline import SUPPORTED_TYPES
+from db.catalog import CatalogQuery, CatalogService, normalize_component
 
 app = FastAPI(title="PriceRig API", version="1.0.0")
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG_PATH = ROOT / "catalog" / "catalog.json"
+CATALOG = CatalogService(CATALOG_PATH)
 REPORT_STORE = create_report_store(ROOT / "runtime" / "reports")
 
 class TelemetryPayload(BaseModel):
     task: str = Field(min_length=1, max_length=80)
     hardware: dict[str, Any]
     telemetry: dict[str, Any]
-
-def load_catalog() -> dict[str, list[dict[str, Any]]]:
-    if not CATALOG_PATH.exists():
-        raise RuntimeError("catalog artifact is missing; run the catalog pipeline before starting the API")
-    import json
-    return json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
 
 
 @app.get("/healthz")
@@ -33,8 +28,29 @@ def health() -> dict[str, str]:
 
 @app.get("/readyz")
 def readiness() -> dict[str, str]:
-    load_catalog()
+    try:
+        CATALOG.metadata()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"status": "ready"}
+
+
+@app.get("/api/v1/catalog")
+def get_catalog_metadata() -> dict[str, Any]:
+    try:
+        return CATALOG.metadata()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/catalog/query")
+def query_catalog(request: CatalogQuery) -> dict[str, Any]:
+    try:
+        return CATALOG.query(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/catalog/candidates")
@@ -44,30 +60,42 @@ def get_candidates(
     limit: int = Query(25, ge=1, le=100),
     max_tdp: int | None = Query(None, ge=0, le=2000),
 ) -> dict[str, Any]:
-    component_type = component.strip().lower()
-    aliases = {"cpu": "CPU", "gpu": "GPU", "ram": "RAM", "motherboard": "Motherboard", "storage": "Storage"}
-    if component_type not in aliases:
-        raise HTTPException(status_code=400, detail=f"component must be one of {', '.join(SUPPORTED_TYPES)}")
-    records = load_catalog()[aliases[component_type]]
+    filters: list[dict[str, Any]] = []
     if max_tdp is not None:
-        records = [
-            record
-            for record in records
-            if int(
-                record.get(
-                    "tdp",
-                    record.get("tdp_watts", record.get("specifications", {}).get("tdp", 0)),
-                )
-                or 0
-            )
-            <= max_tdp
-        ]
-    return {"component": aliases[component_type], "offset": offset, "limit": limit, "total": len(records), "items": records[offset:offset + limit]}
+        try:
+            component_type = normalize_component(component)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if component_type not in {"CPU", "GPU"}:
+            raise HTTPException(status_code=400, detail="max_tdp is supported for CPU and GPU queries")
+        tdp_field = "specifications.tdp" if component_type == "CPU" else "tdp"
+        filters.append({"field": tdp_field, "max": max_tdp})
+    try:
+        return CATALOG.query(CatalogQuery(component=component, filters=filters, offset=offset, limit=limit))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/catalog/{component}")
+def get_component(
+    component: str,
+    offset: int = Query(0, ge=0, le=1000),
+    limit: int = Query(25, ge=1, le=100),
+) -> dict[str, Any]:
+    try:
+        return CATALOG.query(CatalogQuery(component=component, offset=offset, limit=limit))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
 
 @app.post("/api/v1/reports")
 def submit_report(payload: TelemetryPayload):
     """Store a diagnosis and return its stable lookup URL."""
-    report_id = str(uuid.uuid4())[:8] # Short UUID for easy sharing
+    report_id = str(uuid.uuid4())[:8]
     diagnosis = evaluate_gaming_telemetry(payload.telemetry)
     report = {
         "report_id": report_id,

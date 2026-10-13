@@ -60,10 +60,38 @@ WEB_PORT=9090 docker compose up --build
 
 Endpoints:
 
+- `GET /api/v1/catalog` — catalog counts and queryable fields
+- `GET /api/v1/catalog/{component}?limit=25` — simple component listing
+- `POST /api/v1/catalog/query` — filtered/sorted/projection query
 - `GET /api/v1/catalog/candidates?component=gpu&limit=25`
 - `GET /api/v1/catalog/candidates?component=cpu&max_tdp=150`
 - `POST /api/v1/reports`
 - `GET /api/v1/reports/{report_id}`
+
+The client should use `POST /api/v1/catalog/query` after diagnosis when it
+needs a hardware-specific result set. The server validates component fields
+against the generated catalog schema and applies bounded pagination:
+
+```json
+{
+  "component": "gpu",
+  "filters": [
+    {"field": "memory", "min": 8},
+    {"field": "tdp", "max": 250},
+    {"field": "interface", "eq": "PCIe x16"}
+  ],
+  "sort": {"field": "memory", "direction": "desc"},
+  "fields": ["opendb_id", "memory", "memory_type", "chipset", "tdp"],
+  "offset": 0,
+  "limit": 25
+}
+```
+
+Supported filter operators are `eq`, `min`, `max`, and `in`. Queryable fields
+are returned by `GET /api/v1/catalog`; fields are component-specific so a
+client cannot accidentally filter on an incompatible property. The server
+keeps the complete generated records internally but supports `fields` to
+reduce response size and bandwidth.
 
 For local development, omit Azure storage variables. To use Azure directly,
 set `AZURE_STORAGE_ACCOUNT_URL` with managed-identity credentials, or set

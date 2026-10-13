@@ -55,6 +55,22 @@ resource "azurerm_container_app" "api" {
       cpu    = var.container_cpu
       memory = var.container_memory
 
+      liveness_probe {
+        transport        = "HTTP"
+        port             = 8000
+        path             = "/healthz"
+        interval_seconds = 30
+        timeout          = 5
+      }
+
+      readiness_probe {
+        transport        = "HTTP"
+        port             = 8000
+        path             = "/readyz"
+        interval_seconds = 10
+        timeout          = 5
+      }
+
       env {
         name  = "AZURE_STORAGE_ACCOUNT_URL"
         value = azurerm_storage_account.app.primary_blob_endpoint
