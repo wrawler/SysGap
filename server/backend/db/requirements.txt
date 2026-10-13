@@ -8,3 +8,7 @@ uvicorn[standard]
 
 # Data validation (used by FastAPI under the hood for your JSON payloads)
 pydantic
+
+azure-identity
+azure-storage-blob
+azure-data-tables

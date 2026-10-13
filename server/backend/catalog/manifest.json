@@ -1,0 +1,35 @@
+{
+  "target": 200,
+  "categories": {
+    "CPU": {
+      "source_count": 789,
+      "unique_specifications": 769,
+      "retained_count": 200,
+      "duplicate_count": 20
+    },
+    "GPU": {
+      "source_count": 3835,
+      "unique_specifications": 3524,
+      "retained_count": 200,
+      "duplicate_count": 311
+    },
+    "RAM": {
+      "source_count": 4828,
+      "unique_specifications": 1864,
+      "retained_count": 200,
+      "duplicate_count": 2964
+    },
+    "Motherboard": {
+      "source_count": 3699,
+      "unique_specifications": 3661,
+      "retained_count": 200,
+      "duplicate_count": 38
+    },
+    "Storage": {
+      "source_count": 3495,
+      "unique_specifications": 329,
+      "retained_count": 200,
+      "duplicate_count": 3166
+    }
+  }
+}
