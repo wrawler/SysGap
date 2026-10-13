@@ -1,0 +1,6 @@
+location                    = "eastasia"
+project_name                = "sysgap"
+container_image             = "YOUR_REGISTRY.azurecr.io/sysgap-api:latest"
+container_registry_server   = "YOUR_REGISTRY.azurecr.io"
+container_registry_username = "YOUR_ACR_USERNAME"
+container_registry_password = "YOUR_ACR_PASSWORD"
