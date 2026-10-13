@@ -1,6 +1,10 @@
-# PriceRig
+<div align="center">
+  <img src="assets/logo.png" alt="SysGap Logo" width="300"/>
+</div>
 
-PriceRig is a telemetry-driven PC diagnostic engine. The client sends a small
+---
+
+SysGap is a telemetry-driven PC diagnostic engine. The client sends a small
 hardware/telemetry payload, the API evaluates it, and the catalog API returns
 compatible upgrade candidates.
 
