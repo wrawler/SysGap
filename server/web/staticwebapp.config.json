@@ -2,7 +2,7 @@
   "routes": [
     {
       "route": "/catalog",
-      "rewrite": "/catalog/index.html"
+      "rewrite": "/catalog.html"
     }
   ],
   "navigationFallback": {
