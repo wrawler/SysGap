@@ -1,4 +1,4 @@
-"""Select up to five catalog capacity matches for a saved client report."""
+"""Select up to two upgrade options for a saved client report."""
 
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ from candidate_engine import CATALOG_DIRS, select_candidates
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Select capacity-matching parts from a local BuildCores OpenDB snapshot."
+        description="Select up to two closest passing options from a local BuildCores OpenDB snapshot."
     )
     parser.add_argument("--report", required=True, type=Path, help="Saved collector assessment JSON.")
     parser.add_argument("--catalog-root", required=True, type=Path, help="Folder containing CPU/GPU/RAM/Storage/Motherboard.")
     parser.add_argument("--component", required=True, choices=sorted(CATALOG_DIRS))
-    parser.add_argument("--limit", type=int, default=5, help="Maximum results (1-5).")
+    parser.add_argument("--limit", type=int, default=2, help="Maximum options (1-2).")
     parser.add_argument("--output", type=Path, help="Output recommendations JSON (default: alongside input report).")
     args = parser.parse_args()
 
@@ -48,7 +48,8 @@ def main() -> int:
     print(f"Candidates returned: {len(recommendations['candidates'])}")
     print(f"Recommendations: {output.resolve()}")
     if recommendations["candidates"]:
-        print("Candidates are ordered by closest capacity meeting the supplied minimum.")
+        print("Candidates are ordered by closest passing relative specifications.")
+        print("Current price and affordability are unavailable in the catalog.")
         print("Compatibility remains unknown unless separately verified.")
     return 0
 

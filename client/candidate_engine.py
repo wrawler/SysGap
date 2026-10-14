@@ -7,6 +7,8 @@ import math
 from pathlib import Path
 from typing import Any
 
+from profiles import PROFILES, resolve_requirements
+
 CATALOG_DIRS = {
     "cpu": "CPU",
     "gpu": "GPU",
@@ -18,6 +20,7 @@ CATALOG_DIRS = {
 GB_TO_GIB = 1_000_000_000 / (1024 ** 3)
 
 CAPACITY_REQUIREMENTS = {
+    "cpu": ("min_cpu_cores", "core_count"),
     "gpu": ("min_vram_gib", "memory"),
     "ram": ("min_ram_gib", "capacity"),
     "storage": ("min_free_storage_gib", "capacity"),
@@ -29,6 +32,71 @@ def _number(value: Any) -> float | None:
         return None
     value = float(value)
     return value if math.isfinite(value) and value > 0 else None
+
+
+def _nonnegative_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) and value >= 0 else None
+
+
+def _installed_capacity(
+    report: dict[str, Any],
+    component: str,
+) -> tuple[float | None, str, str | None]:
+    hardware = report.get("hardware") or {}
+    if component == "ram":
+        installed = _number(
+            ((hardware.get("memory") or {}).get("summary") or {}).get("total_gib")
+        )
+        return installed, "known" if installed is not None else "unknown", None
+    if component == "gpu":
+        gpus = hardware.get("gpus") or []
+        selected_name = (
+            ((report.get("questionnaire") or {}).get("context") or {}).get(
+                "gpu_used_by_workload"
+            )
+        )
+        if selected_name:
+            normalized = str(selected_name).casefold()
+            matches = [
+                gpu for gpu in gpus
+                if isinstance(gpu, dict)
+                and (
+                    normalized in str(gpu.get("name") or "").casefold()
+                    or str(gpu.get("name") or "").casefold() in normalized
+                )
+            ]
+            selected = matches[0] if len(matches) == 1 else None
+            ambiguous = len(matches) != 1
+        else:
+            selected = gpus[0] if len(gpus) == 1 and isinstance(gpus[0], dict) else None
+            ambiguous = len(gpus) > 1
+        if ambiguous:
+            return None, "unknown", (
+                "Installed GPU capacity is not compared because the adapter used by the workload is ambiguous."
+            )
+        installed = _number(selected.get("dedicated_memory_gib")) if selected else None
+        return installed, "known" if installed is not None else "unknown", None
+    if component == "storage":
+        volumes = ((hardware.get("storage") or {}).get("volumes") or [])
+        known_free = [
+            _nonnegative_number(volume.get("free_gib_at_scan"))
+            for volume in volumes if isinstance(volume, dict)
+        ]
+        known_free = [value for value in known_free if value is not None]
+        if not known_free:
+            return None, "unknown", None
+        return max(known_free), "known", (
+            "Available free space on any one detected volume is compared as a best case; target volume is unknown."
+        )
+    if component == "cpu":
+        physical_cores = _number(
+            ((hardware.get("cpu") or {}).get("physical_cores"))
+        )
+        return physical_cores, "known" if physical_cores is not None else "unknown", None
+    return None, "unknown", None
 
 
 def _manufacturer_url(record: dict[str, Any]) -> str | None:
@@ -167,12 +235,12 @@ def select_candidates(
     report: dict[str, Any],
     catalog_root: Path,
     component: str,
-    limit: int = 5,
+    limit: int = 2,
 ) -> dict[str, Any]:
     if component not in CATALOG_DIRS:
         raise ValueError(f"Unsupported component: {component}")
-    if not 1 <= limit <= 5:
-        raise ValueError("Candidate limit must be between 1 and 5.")
+    if not 1 <= limit <= 2:
+        raise ValueError("Candidate limit must be between 1 and 2.")
 
     hardware = report.get("hardware") or {}
     computer = hardware.get("computer") or {}
@@ -187,7 +255,15 @@ def select_candidates(
         "notes": _form_factor_notes(form_factor) + _compatibility_notes(component),
     }
 
-    requirements = ((report.get("questionnaire") or {}).get("user_supplied_requirements") or {})
+    questionnaire = report.get("questionnaire") or {}
+    requirements, requirement_sources = resolve_requirements(questionnaire)
+    profile = PROFILES.get(questionnaire.get("purpose"))
+    if profile:
+        base["profile_id"] = questionnaire.get("purpose")
+        base["profile_label"] = profile["label"]
+        base["notes"].append(
+            f"Blank numeric answers use the {profile['label']} planning profile where a floor is defined; explicit questionnaire values override it. Profile floors are heuristic defaults, not official workload requirements."
+        )
     requirement_mapping = CAPACITY_REQUIREMENTS.get(component)
     if requirement_mapping is None:
         base["status"] = "not_ranked"
@@ -196,28 +272,69 @@ def select_candidates(
 
     requirement_key, _ = requirement_mapping
     minimum = _number(requirements.get(requirement_key))
-    if minimum is None:
+    base_clock_floor = _number(requirements.get("min_cpu_base_clock_ghz")) if component == "cpu" else None
+    if component == "cpu" and minimum is None and base_clock_floor is not None:
+        base["status"] = "comparison_unknown"
+        base["notes"].insert(
+            0,
+            "Installed performance-core base clock is not available in a comparable form; no CPU upgrade candidates are suggested from base clock alone.",
+        )
+        return base
+    if minimum is None and base_clock_floor is None:
         base["status"] = "not_ranked"
         base["notes"].insert(
             0,
-            f"No positive user-supplied {requirement_key} was provided; candidates are not ranked.",
+            f"No effective positive {requirement_key} floor is available; candidates are not ranked.",
         )
         return base
 
     base["ranking_method"] = (
-        "closest documented capacity at or above user-supplied minimum; "
-        "decimal GB converted to GiB; ties by model name then catalog ID"
+        "closest candidate to all effective CPU floors; not a performance ranking"
+        if component == "cpu"
+        else "closest documented capacity at or above the selected floor; decimal GB converted to GiB; not a performance ranking"
     )
-    inventory = report.get("hardware") or {}
-    if component == "ram":
-        installed = _number(((inventory.get("memory") or {}).get("summary") or {}).get("total_gib"))
-        if installed is not None and installed >= minimum:
-            base["status"] = "capacity_requirement_already_met"
+    if minimum is None:
+        minimum = base_clock_floor
+    installed, installed_status, comparison_note = _installed_capacity(report, component)
+    base["installed_comparison"] = {
+        "status": (
+            "requirement_already_met" if installed_status == "known" and installed >= minimum
+            else "requirement_gap" if installed_status == "known"
+            else "comparison_unknown"
+        ),
+        "installed_value_gib": installed,
+        "required_value_gib": minimum if component != "cpu" else None,
+    }
+    if comparison_note:
+        base["notes"].append(comparison_note)
+    if installed_status == "known" and component != "cpu" and installed >= minimum:
+        base["status"] = "requirement_already_met"
+        base["notes"].insert(
+            0,
+            f"Detected {component} capacity ({installed:g} GiB) already meets the effective floor ({minimum:g} GiB); no capacity-upgrade shortlist is suggested.",
+        )
+        return base
+    if installed_status == "known" and component == "cpu" and minimum is not None and installed >= minimum:
+        if base_clock_floor is None:
+            base["status"] = "requirement_already_met"
             base["notes"].insert(
                 0,
-                f"Detected installed RAM ({installed:g} GiB) already meets the supplied minimum ({minimum:g} GiB); no capacity-based RAM upgrade is suggested.",
+                f"Detected physical CPU core count ({installed:g}) already meets the selected floor ({minimum:g}); no core-count upgrade shortlist is suggested.",
             )
             return base
+        base["status"] = "comparison_unknown"
+        base["notes"].insert(
+            0,
+            "Detected physical core count meets its floor, but installed performance-core base clock cannot be compared; no CPU upgrade candidates are suggested.",
+        )
+        return base
+    if installed_status != "known":
+        base["status"] = "comparison_unknown"
+        base["notes"].insert(
+            0,
+            "Installed component capacity could not be established; no upgrade candidates are suggested.",
+        )
+        return base
     directory = catalog_root / CATALOG_DIRS[component]
     if not directory.is_dir():
         raise FileNotFoundError(f"Catalog directory does not exist: {directory}")
@@ -232,31 +349,99 @@ def select_candidates(
         candidate = _candidate(component, record)
         if candidate is None:
             continue
+        if component == "cpu":
+            values = []
+            floors = []
+            if requirements.get("min_cpu_cores") is not None:
+                values.append(_number(candidate["details"].get("core_count")))
+                floors.append(_number(requirements.get("min_cpu_cores")))
+            if requirements.get("min_cpu_base_clock_ghz") is not None:
+                values.append(_number(candidate["details"].get("base_clock_ghz")))
+                floors.append(base_clock_floor)
+            if not values or any(
+                value is None or floor is None or value < floor
+                for value, floor in zip(values, floors)
+            ):
+                continue
+            candidate["match_status"] = "meets_effective_floors"
+            candidate["closest_match_score"] = [
+                (value - floor) / floor for value, floor in zip(values, floors)
+            ]
+            candidate["compatibility_status"] = "unknown"
+            candidate["price_status"] = "unavailable"
+            candidate["price"] = None
+            candidate["comparison_to_installed"] = "relative_performance_unknown"
+            candidate["why_shown"] = (
+                "Meets the effective CPU core/base-clock floors; relative workload performance and motherboard/BIOS compatibility are unknown."
+            )
+            candidate["notes"] = [candidate["why_shown"]]
+            matches.append(candidate)
+            continue
         capacity = candidate.pop("_capacity")
         if capacity is None or capacity < minimum:
             continue
         candidate["capacity_value_gib"] = capacity
         candidate["capacity_requirement_gib"] = minimum
-        candidate["capacity_fit"] = "meets_user_supplied_minimum"
+        candidate["capacity_fit"] = "meets_effective_minimum"
+        candidate["capacity_requirement_source"] = requirement_sources.get(
+            requirement_key,
+            "not_set",
+        )
         candidate["compatibility_status"] = "unknown"
+        candidate["price_status"] = "unavailable"
+        candidate["price"] = None
+        if component == "storage":
+            comparison = "not_comparable"
+            why_shown = (
+                "Meets the effective free-space floor by total catalog drive capacity; "
+                "drive capacity and current free space are not directly comparable."
+            )
+        elif installed is None:
+            comparison = "installed_comparison_unknown"
+            why_shown = "Meets the effective capacity floor; installed capacity could not be established."
+        elif capacity > installed:
+            comparison = "higher_reported_capacity"
+            why_shown = (
+                f"Catalog capacity ({capacity:g} GiB) exceeds detected capacity "
+                f"({installed:g} GiB); this is not a performance claim."
+            )
+            if component == "ram":
+                why_shown += " Kit installation/replacement and resulting system total are unknown."
+        else:
+            comparison = "not_higher_capacity"
+            why_shown = (
+                f"Catalog capacity ({capacity:g} GiB) is not higher than detected capacity "
+                f"({installed:g} GiB)."
+            )
+        candidate["comparison_to_installed"] = comparison
+        candidate["why_shown"] = why_shown
+        candidate["match_status"] = "meets_effective_floors"
+        candidate["closest_match_score"] = [(capacity - minimum) / minimum]
         if component == "storage":
             candidate["notes"] = [
-                "The target workspace volume is unspecified; current free space on other volumes was not used to declare this requirement met or unmet.",
+                "The catalog value is total drive capacity; installed free space is a separate point-in-time value and the target volume is unknown.",
             ]
         else:
-            candidate["notes"] = [
-                "This capacity match is not verified to be an upgrade over the installed part.",
-            ]
+            candidate["notes"] = [why_shown]
         matches.append(candidate)
 
     matches.sort(key=lambda item: (
-        item["capacity_value_gib"] - minimum,
+        sum(item["closest_match_score"]),
+        max(item["closest_match_score"], default=0),
         item["model"].casefold(),
         item["candidate_id"],
     ))
     base["status"] = "candidates_found" if matches else "no_capacity_match"
-    base["user_supplied_minimum_gib"] = minimum
-    base["requirement_field"] = requirement_key
+    if component != "cpu":
+        base["effective_minimum_gib"] = minimum
+        if requirement_sources.get(requirement_key) == "user_supplied":
+            base["user_supplied_minimum_gib"] = minimum
+    base["requirement_field"] = (
+        "min_cpu_cores and/or min_cpu_base_clock_ghz"
+        if component == "cpu"
+        else requirement_key
+    )
+    base["requirement_source"] = requirement_sources.get(requirement_key, "not_set")
     base["candidates"] = matches[:limit]
     if not matches:
         base["notes"].insert(0, "No catalog item with a verified capacity meets the supplied minimum.")

@@ -16,18 +16,27 @@ def report(
     installed=16,
     component="ram",
     free=None,
+    gpus=None,
+    purpose=None,
+    cpu_cores=4,
 ):
     return {
         "hardware": {
             "computer": {"form_factor": form_factor},
+            "cpu": {"physical_cores": cpu_cores},
             "memory": {"summary": {"total_gib": installed}},
             "storage": {"volumes": [{"free_gib_at_scan": free}] if free is not None else []},
+            "gpus": gpus or [],
         },
         "questionnaire": {
+            "context": {},
+            "purpose": purpose,
             "user_supplied_requirements": {
                 "min_ram_gib": minimum if component == "ram" else None,
                 "min_vram_gib": minimum if component == "gpu" else None,
                 "min_free_storage_gib": minimum if component == "storage" else None,
+                "min_cpu_cores": minimum if component == "cpu" else None,
+                "min_cpu_base_clock_ghz": None,
             }
         },
     }
@@ -69,7 +78,7 @@ class CandidateEngineTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "candidates_found")
         self.assertEqual([item["candidate_id"] for item in result["candidates"]],
-                         ["id-36", "id-48", "id-64"])
+                         ["id-36", "id-48"])
         self.assertAlmostEqual(result["candidates"][0]["capacity_value_gib"], 33.53, places=2)
         self.assertTrue(all(item["compatibility_status"] == "unknown"
                             for item in result["candidates"]))
@@ -99,13 +108,89 @@ class CandidateEngineTests(unittest.TestCase):
 
     def test_already_satisfied_ram_requirement_produces_no_upgrade(self):
         result = select_candidates(report(installed=64, minimum=32), self.catalog, "ram")
-        self.assertEqual(result["status"], "capacity_requirement_already_met")
+        self.assertEqual(result["status"], "requirement_already_met")
         self.assertEqual(result["candidates"], [])
+
+    def test_storage_free_space_meeting_floor_skips_drive_shortlist(self):
+        result = select_candidates(
+            report(component="storage", minimum=32, free=64),
+            self.catalog,
+            "storage",
+        )
+        self.assertEqual(result["status"], "requirement_already_met")
+        self.assertEqual(result["installed_comparison"]["installed_value_gib"], 64)
+        self.assertEqual(result["candidates"], [])
+
+    def test_ambiguous_gpu_does_not_suggest_an_upgrade(self):
+        gpu_directory = self.catalog / "GPU"
+        gpu_directory.mkdir()
+        (gpu_directory / "candidate.json").write_text(json.dumps({
+            "opendb_id": "gpu-candidate",
+            "metadata": {"name": "Example GPU", "manufacturer": "Example"},
+            "memory": 12_000_000_000,
+        }), encoding="utf-8")
+        result = select_candidates(
+            report(
+                component="gpu",
+                minimum=8,
+                gpus=[
+                    {"name": "GPU A", "dedicated_memory_gib": 4},
+                    {"name": "GPU B", "dedicated_memory_gib": 12},
+                ],
+            ),
+            self.catalog,
+            "gpu",
+        )
+        self.assertEqual(result["status"], "comparison_unknown")
+        self.assertEqual(result["installed_comparison"]["status"], "comparison_unknown")
+        self.assertEqual(result["candidates"], [])
+        self.assertTrue(any("ambiguous" in note for note in result["notes"]))
 
     def test_cpu_is_not_ranked_without_a_structured_requirement(self):
         result = select_candidates(report(), self.catalog, "cpu")
         self.assertEqual(result["status"], "not_ranked")
         self.assertFalse(result["performance_ranking"])
+
+    def test_cpu_shortlist_uses_blank_core_floor_from_profile(self):
+        cpu_directory = self.catalog / "CPU"
+        cpu_directory.mkdir()
+        (cpu_directory / "cpu.json").write_text(json.dumps({
+            "opendb_id": "cpu-candidate",
+            "metadata": {"name": "Example 8-core CPU", "manufacturer": "Example"},
+            "cores": {"total": 8, "threads": 16},
+            "clocks": {"performance": {"base": 3.4, "boost": 4.5}},
+        }), encoding="utf-8")
+        profile_report = report(component="cpu", minimum=None, purpose="gaming")
+        result = select_candidates(profile_report, self.catalog, "cpu")
+        self.assertEqual(result["status"], "candidates_found")
+        self.assertEqual(result["requirement_source"], "purpose_profile")
+        self.assertEqual(result["candidates"][0]["candidate_id"], "cpu-candidate")
+        self.assertEqual(
+            result["candidates"][0]["comparison_to_installed"],
+            "relative_performance_unknown",
+        )
+        self.assertEqual(result["candidates"][0]["price_status"], "unavailable")
+
+    def test_only_two_closest_passing_options_are_returned(self):
+        for capacity in (36, 40, 48):
+            self.write_ram(ram_record(f"id-{capacity}", capacity, f"{capacity}GB kit"))
+        result = select_candidates(report(), self.catalog, "ram", limit=2)
+        self.assertEqual(len(result["candidates"]), 2)
+        self.assertEqual(
+            [candidate["candidate_id"] for candidate in result["candidates"]],
+            ["id-36", "id-40"],
+        )
+
+    def test_cpu_profile_floor_already_met_does_not_suggest_upgrade(self):
+        profile_report = report(
+            component="cpu",
+            minimum=None,
+            purpose="gaming",
+            cpu_cores=8,
+        )
+        result = select_candidates(profile_report, self.catalog, "cpu")
+        self.assertEqual(result["status"], "requirement_already_met")
+        self.assertEqual(result["candidates"], [])
 
     def test_cli_binds_candidate_file_to_exact_report_bytes(self):
         self.write_ram(ram_record("id-48", 48, "48 GB kit"))

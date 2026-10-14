@@ -5,21 +5,30 @@ from decision_engine import evaluate_assessment
 
 def inventory(ram=16, gpus=None, free=(200, 50)):
     return {
-        "cpu": {"name": "Example CPU"},
+        "cpu": {"name": "Example CPU", "physical_cores": 4, "max_clock_mhz": 4800},
         "gpus": gpus or [{"name": "Example GPU", "dedicated_memory_gib": 8}],
         "memory": {"summary": {"total_gib": ram}},
         "storage": {"volumes": [{"free_gib_at_scan": value} for value in free]},
     }
 
 
-def questionnaire(ram=None, vram=None, free=None):
+def questionnaire(
+    ram=None,
+    vram=None,
+    free=None,
+    cores=None,
+    base_clock=None,
+    purpose="upgrade_planning",
+):
     return {
-        "purpose": "gaming",
+        "purpose": purpose,
         "symptom_label": "No current problem",
         "user_supplied_requirements": {
             "min_ram_gib": ram,
             "min_vram_gib": vram,
             "min_free_storage_gib": free,
+            "min_cpu_cores": cores,
+            "min_cpu_base_clock_ghz": base_clock,
         },
     }
 
@@ -93,6 +102,77 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertEqual(by_area["memory"]["status"], "unknown")
         self.assertEqual(by_area["graphics_memory"]["status"], "unknown")
         self.assertEqual(by_area["storage_capacity"]["status"], "unknown")
+
+    def test_cpu_physical_core_floor_is_compared_without_using_logical_processors(self):
+        result = evaluate_assessment(questionnaire(cores=6), inventory())
+        finding = next(item for item in result["findings"] if item["area"] == "processor_cores")
+        self.assertEqual(finding["status"], "potential_concern")
+        self.assertIn("4 physical cores", finding["evidence"][0])
+        self.assertIn("not proof", finding["caveats"][0])
+
+    def test_cpu_max_clock_is_not_misrepresented_as_base_clock(self):
+        result = evaluate_assessment(questionnaire(base_clock=3.2), inventory())
+        finding = next(item for item in result["findings"] if item["area"] == "processor_base_clock")
+        self.assertEqual(finding["status"], "unknown")
+        self.assertIn("4800 MHz", finding["evidence"][1])
+        self.assertIn("not a comparable base-clock", finding["evidence"][1])
+
+    def test_cpu_core_floor_met_is_not_a_performance_claim(self):
+        hardware = inventory()
+        hardware["cpu"]["physical_cores"] = 8
+        result = evaluate_assessment(questionnaire(cores=6), hardware)
+        finding = next(item for item in result["findings"] if item["area"] == "processor_cores")
+        self.assertEqual(finding["status"], "meets")
+        self.assertIn("does not establish CPU performance", finding["caveats"][0])
+
+    def test_gaming_profile_fills_blank_floors_and_reports_per_metric_attainment(self):
+        result = evaluate_assessment(
+            questionnaire(purpose="gaming"),
+            inventory(),
+        )
+        self.assertEqual(result["profile_comparison"]["profile_label"], "Gaming baseline")
+        self.assertEqual(
+            result["effective_requirements"]["min_vram_gib"],
+            8,
+        )
+        self.assertEqual(
+            result["requirement_sources"]["min_vram_gib"],
+            "purpose_profile",
+        )
+        metrics = {
+            metric["metric"]: metric
+            for metric in result["profile_comparison"]["metrics"]
+        }
+        self.assertEqual(metrics["ram_capacity"]["target_attainment_percent"], 100)
+        self.assertEqual(metrics["cpu_physical_cores"]["target_attainment_percent"], 66.7)
+        self.assertEqual(metrics["cpu_physical_cores"]["status"], "below_floor")
+        self.assertEqual(
+            result["profile_comparison"]["component_scores"]["cpu"]["score"],
+            66.7,
+        )
+        self.assertEqual(
+            result["profile_comparison"]["component_scores"]["ram"]["score"],
+            100,
+        )
+        self.assertIn("not a performance score", result["profile_comparison"]["method"])
+        self.assertTrue(any(
+            "selected purpose-profile floor" in evidence.lower()
+            for finding in result["findings"]
+            for evidence in finding["evidence"]
+        ))
+
+    def test_unknown_gpu_keeps_profile_attainment_unknown(self):
+        hardware = inventory(gpus=[
+            {"name": "NVIDIA GPU", "dedicated_memory_gib": None},
+            {"name": "Intel Graphics", "dedicated_memory_gib": 2},
+        ])
+        result = evaluate_assessment(questionnaire(purpose="gaming"), hardware)
+        gpu_metric = next(
+            metric for metric in result["profile_comparison"]["metrics"]
+            if metric["metric"] == "dedicated_vram"
+        )
+        self.assertEqual(gpu_metric["status"], "unknown")
+        self.assertIsNone(gpu_metric["target_attainment_percent"])
 
 
 if __name__ == "__main__":

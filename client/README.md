@@ -1,25 +1,116 @@
 # PriceRig client-side assessment
 
 The client asks about the intended workload, gathers a one-time Windows
-hardware inventory, compares detectable capacity only with requirements the
-user supplies, and writes a local JSON and readable text report.
+hardware inventory, compares detectable capacity with user-supplied
+requirements or labeled purpose-profile floors, and writes a local JSON and
+readable text report.
 
 It does **not** run benchmarks or stress tests, invent telemetry, or claim to
 identify a live bottleneck. Missing requirements and unsupported hardware
-readings remain unknown. Meeting a minimum-capacity requirement is not proof
-that an application will perform well.
+readings remain unknown. Profile floors are provisional planning heuristics,
+not official requirements. Meeting a floor is not proof that an application
+will perform well.
+
+## Purpose-profile fallback floors
+
+When a user leaves an individual numeric requirement blank, the assessment and
+catalog query use that metric's default from the selected purpose profile.
+Explicit numeric answers override only their corresponding profile value.
+`upgrade_planning` and `other` intentionally have no default profile. Profile
+values are visible in the report with their source; they should not be
+presented as requirements from a particular app or as proven bottleneck
+thresholds.
+
+| Profile | RAM | Dedicated VRAM | Physical CPU cores | Free workspace |
+| --- | ---: | ---: | ---: | ---: |
+| General use | 16 GiB | — | 4 | 30 GiB |
+| Gaming | 16 GiB | 8 GiB | 6 | 100 GiB |
+| Video editing | 32 GiB | 8 GiB | 8 | 200 GiB |
+| Rendering | 32 GiB | 8 GiB | 8 | 200 GiB |
+| Local AI | 32 GiB | 12 GiB | 6 | 100 GiB |
+
+These are deliberately broad v1 planning assumptions. Gaming is a generic
+1080p planning baseline without an FPS promise; editing and rendering depend
+on the app, codec, scene, and CPU/GPU mode; local AI assumes small quantized
+model experimentation and varies substantially by model and context length.
+No CPU base-clock default is invented. The report shows per-metric target
+attainment (observed capacity divided by its floor, capped at 100%) to make
+shortfalls easy to read. These percentages are not component performance
+scores, are not averaged into an overall score, and do not identify a
+bottleneck.
+
+The report also groups those values as separate CPU/GPU/RAM/storage
+profile-fit scores. Each score uses only its own measured profile feature:
+physical CPU core count, selected-adapter dedicated VRAM, installed RAM
+capacity, or best-case free workspace on one volume. A score of 100 means
+"meets this profile floor", not "100% performance". Unknown readings remain
+unknown and do not trigger an upgrade suggestion. CPU architecture/sustained
+performance, GPU compute/raster speed, RAM bandwidth, and storage I/O speed
+are not scored because the client lacks comparable measurements for them.
+
+The catalog also supplies these candidate features for context, not as hidden
+performance scores:
+
+| Component | Compared profile feature | Other reported catalog features |
+| --- | --- | --- |
+| CPU | Core count; optional user-supplied performance-core base clock | Threads, boost clock, socket, TDP |
+| GPU | Dedicated VRAM capacity | Chipset, memory type, board length, interface, TDP |
+| RAM | Kit capacity | Module count, module capacity, memory type, form factor, speed |
+| Storage | Drive capacity as a lower-bound match for free-workspace floor | Drive type, form factor, interface, NVMe indicator |
+
+The scores do not combine these unlike features into a single component
+performance score. Candidate options are selected only after a known installed
+shortfall, and are the one or two closest items that pass the profile/user
+floors. They are capacity/specification options, not verified compatible
+upgrades. The API has no reliable current prices, and laptop or desktop
+compatibility checks are not available from the current collector/catalog, so
+cost, affordability, sustainability, and physical upgradeability remain
+unknown.
 
 ## Run on Windows
 
 Requires Python 3.10 or newer.
+
+For the guided collection-and-comparison flow, double-click
+`SysGap.bat` in this folder. It runs the questionnaire and local hardware
+assessment, then checks eligible CPU, GPU, RAM, and storage gaps against the
+configured SysGap API. After comparison, the existing upload-consent prompt
+lets you submit the combined report to the backend. Declining keeps the local
+reports only. No benchmark, stress test, or browser-based report is used. The
+optional 10-second ambient snapshot is off by default and starts no workload.
+
+On first launch, the batch file creates an isolated `.venv` in this folder and
+installs the packages listed in `requirements.txt`; internet access is needed
+for this setup. Later launches reuse that environment. If requirements change,
+run `.venv\Scripts\python.exe -m pip install -r requirements.txt` from this
+folder.
+
+Reports are saved as JSON and readable text files under `reports/`. The
+combined local candidate report uses the `_with_recommendations` filename
+suffix. It stores all per-component catalog lookups for local traceability,
+but the readable report and `recommendations` section show only the selected
+categories. Before upload, components with known numeric profile-fit scores
+and passing catalog candidates are ranked by their shortfall from 100; only
+the top two component categories are included in the backend payload. Each
+selected category includes at most two candidate models. Unknown scores,
+scores already at 100, and categories with no passing candidates are not
+selected. The local report records the selected categories and their score
+gaps; the all-component lookup data is not sent to the backend.
+If the catalog API is unavailable, the local assessment remains available;
+correct the network/API setting and rerun comparison with the saved JSON.
+
+Install dependencies before first use:
 
 ```powershell
 cd client
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-python collector.py
 ```
+
+To run collection alone, use `python collector.py`. To compare an existing
+assessment manually, use `python compare_and_submit.py --report
+.\reports\<assessment-file>.json --components cpu gpu ram storage`.
 
 Detailed device inventory uses Windows Management Instrumentation (WMI).
 `psutil` supplies point-in-time memory and volume-capacity readings. GPU
@@ -48,17 +139,37 @@ python compare_and_submit.py --report .\reports\assessment_YYYYMMDD.json `
 ```
 
 This makes read-only `POST /api/v1/catalog/query` calls containing only the
-selected component and explicit numeric requirements from the questionnaire.
+selected component and effective floors (user-entered values where provided,
+otherwise selected purpose-profile defaults).
 It does not send the hardware inventory to run catalog queries. It requests at
-most five rows per component. Matching catalog rows are not performance
-rankings or proof of upgrade need/compatibility. The API catalog currently has
-no declared units for all numeric capacity fields, so results near a capacity
-threshold should be verified against the manufacturer's specifications.
+most 100 rows per API page, follows additional pages where needed, then returns
+at most two candidates closest to the effective numeric floors. Candidates are
+queried only for components with a detected shortfall against a known floor.
+For multiple CPU floors or component capacities, closeness is ordered by the
+sum of relative excess over each applicable floor. This is only a "closest
+passing specs" ordering—not performance, price, value, or compatibility
+ranking. The catalog has no reliable current prices, so affordability is
+explicitly unavailable; the client does not call candidates cost-effective.
+
+RAM, VRAM, and storage requirements are entered in GiB and converted to decimal
+GB for the OpenDB-style catalog fields. The API does not publish units for
+every capacity field, so this assumes those catalog fields use decimal GB;
+verify candidates near a threshold against manufacturer specifications. When
+detected RAM, selected-workload GPU VRAM, or free space on at least one volume
+already meets the corresponding effective floor, no capacity-upgrade shortlist
+is queried for that component. For multiple GPUs, the report only compares VRAM
+when the questionnaire identifies one matching adapter; otherwise the
+installed-GPU comparison is unknown. A candidate match says only that its
+catalog fields meet the effective floors. It is not a diagnosis or proof of an
+upgrade need.
 
 The questionnaire asks for optional minimum CPU physical cores and CPU base
-clock so CPU queries can use explicit floors such as the API's documented
-`cores.total >= 6` and `clocks.performance.base >= 3.2` filters. It never
-derives those floors from a symptom or workload label.
+clock so those user values can override or extend a selected profile's core
+floor. It never derives extra floors from a symptom. The assessment compares
+physical core count when detected; Windows' reported maximum clock is not
+substituted for the catalog's performance-core base clock, so that comparison
+remains unknown. Catalog CPU candidates meeting the supplied floors do not
+establish relative CPU performance.
 
 To also submit the combined report, only after reviewing it and the server
 behavior, add `--upload`. The client asks for explicit consent and posts to
@@ -83,8 +194,9 @@ python compare_and_submit.py --report .\reports\assessment_YYYYMMDD.json `
   --components cpu gpu ram storage motherboard
 ```
 
-`--components` defaults to all five categories. A category without a positive
-structured requirement is marked `not_ranked` without querying. Motherboard
+`--components` defaults to all five categories. A component without an effective
+positive floor is marked `not_ranked` without querying; a component whose
+installed comparison is unknown does not receive upgrade suggestions. Motherboard
 queries are currently withheld because no explicit selection criteria or
 reliable compatibility data exists. Desktop, laptop, and unknown-form-factor
 systems can all receive specification matches, but compatibility always
@@ -92,8 +204,8 @@ remains unknown. For laptops especially, the matching parts may be soldered,
 non-upgradeable, or specific to the exact model; verify replaceability and
 supported parts in the manufacturer's service manual before acting. RAM and
 storage matches are capacity-based only; GPU and CPU matching also does not
-establish relative performance or upgrade value. `--limit` can lower the
-per-category API result cap from five.
+establish relative performance or upgrade value. `--limit` can reduce the
+maximum two candidate options per component to one.
 
 To submit the combined report too, add `--upload`; the client prompts for
 consent. To query and upload using a non-default API, pass
@@ -131,9 +243,11 @@ in memory, writes nothing to disk, and is not for deployment.
 
 ## Assessment methodology and limitations
 
-The engine performs explicit comparisons only for minimum RAM, dedicated VRAM,
-and free storage requirements that the user enters. These findings are based
-on detected capacities and user-supplied requirements. The questionnaire
+The engine compares minimum RAM, dedicated VRAM, free storage, and CPU
+physical-core requirements entered by the user or provided by the selected
+purpose profile. Findings are based on detected capacities/core counts and
+clearly labeled floors. CPU base-clock comparison remains unknown unless a
+comparable measurement is available. The questionnaire
 allows a URL/document reference for those requirements; the client records but
 does not independently verify that source. CPU model text is not converted to
 a performance score without a curated, comparable CPU data source.

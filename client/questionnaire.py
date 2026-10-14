@@ -5,9 +5,12 @@ from __future__ import annotations
 import math
 from typing import Any, Callable
 
+from profiles import PROFILES, resolve_requirements
+
 PURPOSES = {
     "gaming": "Gaming",
     "video_editing": "Video editing",
+    "rendering": "3D / CPU-GPU rendering",
     "local_ai": "Local AI / machine learning",
     "general": "Everyday / general use",
     "upgrade_planning": "Upgrade planning",
@@ -97,6 +100,13 @@ def run_questionnaire(input_fn: Callable[[str], str] = input) -> dict[str, Any]:
         context["project_description"] = _optional_text(
             "Project/effect complexity (optional): ", input_fn
         )
+    elif purpose == "rendering":
+        context["renderer"] = _optional_text(
+            "Renderer or application (optional): ", input_fn
+        )
+        context["render_mode"] = _optional_text(
+            "CPU, GPU, or mixed rendering mode (optional): ", input_fn
+        )
     elif purpose == "local_ai":
         context["model_or_workload"] = _optional_text(
             "Model or workload (optional): ", input_fn
@@ -106,9 +116,29 @@ def run_questionnaire(input_fn: Callable[[str], str] = input) -> dict[str, Any]:
             "GPU used by this workload, if known (optional): ", input_fn
         )
 
+    profile = PROFILES.get(purpose)
+    if profile:
+        print(f"\nSelected fallback: {profile['label']}")
+        print(profile["description"])
+        defaults = profile["requirements"]
+        default_text = ", ".join(
+            f"{name}={value}"
+            for name, value in (
+                ("RAM GiB", defaults["min_ram_gib"]),
+                ("VRAM GiB", defaults["min_vram_gib"]),
+                ("CPU physical cores", defaults["min_cpu_cores"]),
+                ("free workspace GiB", defaults["min_free_storage_gib"]),
+            )
+            if value is not None
+        )
+        print(f"Blank numeric answers use these provisional planning floors: {default_text}.")
+        print("They are not official requirements and do not predict performance.")
+
     print(
         "\nIf you have the application's official system requirements, enter the "
-        "minimum values here. Leave unknown values blank; they will not be guessed."
+        "minimum values here. Your entries override the selected purpose profile. "
+        "Blank entries use its labeled planning baseline when available; "
+        "upgrade_planning/other have no default profile."
     )
     requirements = {
         "min_ram_gib": _optional_positive_number(
@@ -133,7 +163,7 @@ def run_questionnaire(input_fn: Callable[[str], str] = input) -> dict[str, Any]:
             "Official requirement URL/document reference (optional): ", input_fn
         ),
     }
-    return {
+    response = {
         "purpose": purpose,
         "purpose_label": PURPOSES[purpose],
         "symptom": symptom,
@@ -143,3 +173,8 @@ def run_questionnaire(input_fn: Callable[[str], str] = input) -> dict[str, Any]:
         "user_supplied_requirements": requirements,
         "answers_are_self_reported": True,
     }
+    effective, sources = resolve_requirements(response)
+    response["effective_requirements"] = effective
+    response["requirement_sources"] = sources
+    response["profile_id"] = purpose if purpose in PROFILES else None
+    return response

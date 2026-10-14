@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import compare_and_submit
 from candidate_engine import GB_TO_GIB
+from collector import _render
 
 
 def assessment():
@@ -33,6 +34,28 @@ def assessment():
             "overall_status": "insufficient_information",
             "summary": "No claim.",
             "findings": [],
+            "profile_comparison": {
+                "profile_label": "Gaming baseline",
+                "description": "Baseline profile description.",
+                "metrics": [{
+                    "label": "Installed RAM",
+                    "observed": 8,
+                    "target": 16,
+                    "unit": "GiB",
+                    "requirement_source": "purpose_profile",
+                    "target_attainment_percent": 50,
+                    "status": "below_floor",
+                }],
+                "component_scores": {
+                    "ram": {
+                        "score": 50,
+                        "status": "below_floor",
+                        "basis": "Installed RAM",
+                        "limits": "Capacity only.",
+                    },
+                },
+                "assumptions": ["Not an application-specific requirement."],
+            },
             "assumptions": [],
             "collection_notes": [],
         },
@@ -69,6 +92,106 @@ class CompareAndSubmitTests(unittest.TestCase):
         path.write_text(json.dumps(item), encoding="utf-8")
         return path
 
+    def test_selects_only_two_candidate_categories_with_largest_known_gaps(self):
+        report = assessment()
+        report["assessment"]["profile_comparison"]["component_scores"] = {
+            "cpu": {"score": 75},
+            "gpu": {"score": 40},
+            "ram": {"score": 60},
+            "storage": {"score": None},
+        }
+        recommendations = [
+            {"component": "cpu", "candidates": [{"model": "CPU option"}]},
+            {"component": "gpu", "candidates": [{"model": "GPU option"}]},
+            {"component": "ram", "candidates": [{"model": "RAM option"}]},
+            {"component": "storage", "candidates": [{"model": "Storage option"}]},
+        ]
+
+        selected, ranking = compare_and_submit._select_top_component_gaps(
+            report, recommendations
+        )
+
+        self.assertEqual([item["component"] for item in selected], ["gpu", "ram"])
+        self.assertEqual(
+            [item["profile_floor_gap"] for item in ranking],
+            [60.0, 40.0],
+        )
+        self.assertEqual([item["component"] for item in recommendations], [
+            "cpu", "gpu", "ram", "storage"
+        ])
+
+    @patch("compare_and_submit.upload_report")
+    @patch("compare_and_submit.select_remote_candidates")
+    @patch("compare_and_submit._consent", return_value=True)
+    def test_backend_receives_only_top_two_categories_but_local_report_keeps_all(
+        self, _consent, select_remote, upload_report
+    ):
+        report = assessment()
+        report["assessment"]["profile_comparison"]["component_scores"] = {
+            "cpu": {"score": 70, "status": "below_floor", "basis": "CPU cores", "limits": "Cores only."},
+            "gpu": {"score": 20, "status": "below_floor", "basis": "VRAM", "limits": "VRAM only."},
+            "ram": {"score": 60, "status": "below_floor", "basis": "RAM", "limits": "Capacity only."},
+            "storage": {"score": 40, "status": "below_floor", "basis": "Free space", "limits": "Space only."},
+        }
+        self.report_path.write_text(json.dumps(report), encoding="utf-8")
+        self.report_bytes = self.report_path.read_bytes()
+
+        def recommendation(_report, component, _url, _limit):
+            return {
+                "schema_version": 1,
+                "component": component,
+                "status": "candidates_found",
+                "candidates": [{"component": component, "model": f"{component} option"}],
+                "notes": [],
+            }
+
+        select_remote.side_effect = recommendation
+        upload_report.return_value = {"report_url": "https://example.test/report"}
+        with patch(
+            "sys.argv",
+            [
+                "compare_and_submit.py",
+                "--report",
+                str(self.report_path),
+                "--components",
+                "cpu",
+                "gpu",
+                "ram",
+                "storage",
+                "--upload",
+            ],
+        ):
+            self.assertEqual(compare_and_submit.main(), 0)
+
+        local = json.loads(
+            (self.root / "assessment_with_recommendations.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            [item["component"] for item in local["recommendations"]],
+            ["gpu", "storage"],
+        )
+        self.assertEqual(
+            [item["component"] for item in local["catalog_lookup_results"]],
+            ["cpu", "gpu", "ram", "storage"],
+        )
+        self.assertEqual(
+            [item["component"] for item in local["recommendation_selection"]["selected_components"]],
+            ["gpu", "storage"],
+        )
+        local_text = (self.root / "assessment_with_recommendations.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("TOP COMPONENT GAPS SELECTED FOR BACKEND", local_text)
+        self.assertIn("GPU: score 20.0/100; gap 80.0 points", local_text)
+        self.assertNotIn("CPU: candidates_found", local_text)
+        submitted = upload_report.call_args.args[1]
+        self.assertEqual(
+            [item["component"] for item in submitted["recommendations"]],
+            ["gpu", "storage"],
+        )
+        self.assertNotIn("catalog_lookup_results", submitted)
+        self.assertEqual(len(submitted["recommendations"]), 2)
+
     def test_rejects_candidate_file_from_different_assessment(self):
         candidate_path = self.write_candidate("gpu", "wrong-hash")
         with patch(
@@ -94,13 +217,18 @@ class CompareAndSubmitTests(unittest.TestCase):
             (self.root / "assessment_with_recommendations.json").read_text(encoding="utf-8")
         )
         self.assertEqual(
-            [item["component"] for item in merged["recommendations"]],
+            [item["component"] for item in merged["catalog_lookup_results"]],
             ["gpu", "ram"],
         )
+        self.assertEqual(merged["recommendations"], [])
         text = (self.root / "assessment_with_recommendations.txt").read_text(encoding="utf-8")
-        self.assertIn("CANDIDATE SHORTLISTS", text)
-        self.assertIn("GPU: not_ranked", text)
-        self.assertIn("RAM: not_ranked", text)
+        self.assertIn("TOP COMPONENT GAPS SELECTED FOR BACKEND", text)
+        self.assertIn("PROFILE / REQUIREMENT FLOOR COMPARISON", text)
+        self.assertIn("50.0% of floor", text)
+        self.assertIn("RAM profile-fit score: 50.0/100", text)
+        self.assertIn("None: no known below-floor component had passing catalog candidates.", text)
+        self.assertNotIn("CANDIDATE SHORTLISTS", text)
+        self.assertFalse((self.root / "assessment_with_recommendations.html").exists())
 
     def test_selects_and_combines_in_one_command(self):
         report_data = assessment()
@@ -158,6 +286,33 @@ class CompareAndSubmitTests(unittest.TestCase):
             [call.args[1] for call in select_remote.call_args_list],
             ["cpu", "gpu", "ram", "storage", "motherboard"],
         )
+
+    def test_report_render_explains_installed_comparison_and_candidate_selection(self):
+        report_data = assessment()
+        report_data["recommendations"] = [{
+            "component": "ram",
+            "status": "candidates_found",
+            "ranking_method": "closest to the supplied floor; not a performance ranking",
+            "installed_comparison": {
+                "status": "requirement_gap",
+                "installed_value_gib": 16,
+                "required_value_gib": 32,
+            },
+            "candidates": [{
+                "manufacturer": "Example",
+                "model": "32 GiB kit",
+                "capacity_value_gib": 32,
+                "compatibility_status": "unknown",
+                "why_shown": "Meets the supplied floor; kit installation is unknown.",
+                "details": {"capacity": 34.36},
+                "candidate_id": "ram-id",
+            }],
+            "notes": [],
+        }]
+        rendered = _render(report_data)
+        self.assertIn("Installed comparison: requirement_gap; detected 16 GiB; supplied floor 32 GiB", rendered)
+        self.assertIn("Why shown: Meets the supplied floor; kit installation is unknown.", rendered)
+        self.assertIn("Price/value: unavailable", rendered)
 
 
 if __name__ == "__main__":
