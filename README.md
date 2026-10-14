@@ -7,11 +7,9 @@
 </p>
 
 <p align="center">
-  <a href="https://sysgap.wrawler.online">Live site</a>
-  ·
-  <a href="https://sysgap.wrawler.online/catalog">Parts catalog</a>
-  ·
-  <a href="client/README.md">Client documentation</a>
+  <a href="https://sysgap.wrawler.online"><img src="https://img.shields.io/website?url=https%3A%2F%2Fsysgap.wrawler.online&label=live%20site" alt="Live site status"></a>
+  <a href="client/README.md"><img src="https://img.shields.io/badge/client-documentation-5b8def" alt="Client documentation"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/wrawler/PriceRig" alt="License"></a>
 </p>
 
 ## Overview
