@@ -50,6 +50,23 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertEqual(by_area["storage_capacity"]["status"], "meets")
         self.assertEqual(result["overall_status"], "potential_concern")
 
+    def test_preset_ram_floor_allows_small_hardware_reserved_difference(self):
+        result = evaluate_assessment(
+            questionnaire(purpose="gaming"),
+            inventory(ram=15.41),
+        )
+        finding = next(item for item in result["findings"] if item["area"] == "memory")
+        self.assertEqual(finding["status"], "meets")
+        self.assertIn("hardware-reserved-memory allowance", finding["evidence"][0])
+
+    def test_user_supplied_ram_floor_remains_strict(self):
+        result = evaluate_assessment(
+            questionnaire(ram=16),
+            inventory(ram=15.41),
+        )
+        finding = next(item for item in result["findings"] if item["area"] == "memory")
+        self.assertEqual(finding["status"], "potential_concern")
+
     def test_missing_gpu_vram_is_unknown_and_not_shared_memory(self):
         hardware = inventory(gpus=[{"name": "Integrated GPU", "dedicated_memory_gib": None}])
         result = evaluate_assessment(questionnaire(vram=4), hardware)

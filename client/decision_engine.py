@@ -14,6 +14,7 @@ from profiles import (
 
 ENGINE_VERSION = "0.1.0"
 STATUSES = {"meets", "potential_concern", "unknown", "not_assessed"}
+PRESET_RAM_HEADROOM = 0.05
 
 
 def _finding(
@@ -68,6 +69,17 @@ def _requirement_label(source: str) -> str:
     return "selected purpose-profile floor" if source == "purpose_profile" else "user-supplied minimum"
 
 
+def _ram_floor_meets(
+    observed: float,
+    target: float,
+    source: str,
+) -> bool:
+    """Allow small OS/hardware-reserved RAM differences for heuristic floors."""
+    if source == "user_supplied":
+        return observed >= target
+    return observed >= target * (1 - PRESET_RAM_HEADROOM)
+
+
 def _profile_comparison(
     questionnaire: dict[str, Any],
     requirements: dict[str, Any],
@@ -98,7 +110,14 @@ def _profile_comparison(
         else:
             attainment = min(observed / target * 100, 100)
             shortfall = max(100 - attainment, 0)
-            status = "below_floor" if observed < target else "meets_floor"
+            meets_floor = (
+                _ram_floor_meets(observed, target, sources.get(key, "not_set"))
+                if key == "min_ram_gib"
+                else observed >= target
+            )
+            attainment = 100 if meets_floor else attainment
+            shortfall = 0 if meets_floor else shortfall
+            status = "meets_floor" if meets_floor else "below_floor"
         comparisons.append({
             "metric": metric_id,
             "label": label,
@@ -177,10 +196,20 @@ def evaluate_assessment(
             ["The collector did not substitute an estimate."],
             "low", "Check the installed memory in Windows system settings.",
         ))
-    elif installed_ram >= required_ram:
+    elif _ram_floor_meets(
+        installed_ram,
+        required_ram,
+        requirement_sources["min_ram_gib"],
+    ):
+        allowance = (
+            " This is within the 5% hardware-reserved-memory allowance for "
+            "preset/profile planning floors."
+            if installed_ram < required_ram
+            else ""
+        )
         findings.append(_finding(
             "memory", "meets", "Detected RAM meets the supplied minimum",
-            [f"Detected {installed_ram:g} GiB; {ram_requirement_label} is {required_ram:g} GiB."],
+            [f"Detected {installed_ram:g} GiB; {ram_requirement_label} is {required_ram:g} GiB.{allowance}"],
             ["Meeting a minimum capacity does not establish smooth performance or rule out memory pressure."],
             "high for reported capacity comparison",
             "Compare with the application's recommended requirements for additional context.",

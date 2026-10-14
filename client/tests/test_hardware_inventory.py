@@ -1,10 +1,50 @@
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 import hardware_inventory
 
 
 class HardwareInventoryTests(unittest.TestCase):
+    def test_linux_gpu_vram_reads_matching_drm_adapter(self):
+        with tempfile.TemporaryDirectory() as directory:
+            card = Path(directory) / "card1"
+            device = card / "device"
+            device.mkdir(parents=True)
+            (device / "uevent").write_text(
+                "PCI_SLOT_NAME=0000:03:00.0\n",
+                encoding="utf-8",
+            )
+            (device / "mem_info_vram_total").write_text(
+                str(8 * hardware_inventory.GIB),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                hardware_inventory._linux_gpu_vram_gib("03:00.0", Path(directory)),
+                8,
+            )
+
+    @patch.object(hardware_inventory.subprocess, "run")
+    @patch.object(hardware_inventory.shutil, "which", return_value="/usr/bin/lspci")
+    def test_linux_gpu_parser_uses_product_name_and_vram(self, _which, run):
+        run.return_value = type(
+            "Completed",
+            (),
+            {
+                "returncode": 0,
+                "stdout": '03:00.0 "VGA compatible controller [0300]" "Advanced Micro Devices, Inc. [AMD/ATI]" "Navi 23 [Radeon RX 6600]" "ASRock"\n',
+            },
+        )()
+        with patch.object(
+            hardware_inventory,
+            "_linux_gpu_vram_gib",
+            return_value=8,
+        ):
+            result = hardware_inventory._linux_gpu_names([])
+        self.assertEqual(result[0]["name"], "Navi 23 [Radeon RX 6600]")
+        self.assertEqual(result[0]["dedicated_memory_gib"], 8)
+
     def test_non_windows_uses_common_provider_without_wmi_fields(self):
         with (
             patch.object(hardware_inventory.os, "name", "posix"),

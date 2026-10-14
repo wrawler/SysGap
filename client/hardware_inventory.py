@@ -101,8 +101,8 @@ class _CommonInventoryProvider:
         if platform.system() == "Linux":
             result["gpus"] = _linux_gpu_names(notes)
         notes.append(
-            "Detailed motherboard, BIOS, memory-module, physical-disk, and GPU-memory "
-            "inventory is not available from the common provider."
+            "Detailed motherboard, BIOS, memory-module, and physical-disk inventory "
+            "is not available from the common provider."
         )
         return result
 
@@ -145,17 +145,50 @@ def _linux_gpu_names(notes: list[str]) -> list[dict[str, Any]]:
         ):
             continue
         fields = re.findall(r'"([^"]*)"', line)
+        slot = line.split(maxsplit=1)[0] if line else None
         name = fields[2] if len(fields) >= 3 else None
         gpus.append({
             "name": _clean(name),
             "manufacturer": None,
-            "dedicated_memory_gib": None,
+            "dedicated_memory_gib": _linux_gpu_vram_gib(slot),
             "driver_version": None,
             "status": None,
         })
     if not gpus:
         notes.append("Linux GPU names were not reported by lspci.")
     return gpus
+
+
+def _linux_gpu_vram_gib(
+    pci_slot: str | None,
+    drm_root: Path = Path("/sys/class/drm"),
+) -> float | None:
+    """Read driver-reported VRAM for one PCI adapter from Linux DRM sysfs."""
+    if not pci_slot:
+        return None
+    target_slot = pci_slot.rsplit(":", 1)[-1]
+    for card in drm_root.glob("card[0-9]*"):
+        if not re.fullmatch(r"card\d+", card.name):
+            continue
+        try:
+            uevent = (card / "device" / "uevent").read_text(encoding="utf-8")
+            slot_line = next(
+                (
+                    line.partition("=")[2].strip()
+                    for line in uevent.splitlines()
+                    if line.startswith("PCI_SLOT_NAME=")
+                ),
+                None,
+            )
+            if not slot_line or slot_line.rsplit(":", 1)[-1] != target_slot:
+                continue
+            value = (card / "device" / "mem_info_vram_total").read_text(
+                encoding="utf-8"
+            )
+            return _gib(value)
+        except (OSError, UnicodeError):
+            continue
+    return None
 
 
 def _windows_inventory(notes: list[str]) -> dict[str, Any]:
@@ -325,6 +358,8 @@ def collect_inventory() -> tuple[dict[str, Any], list[str]]:
             "platform_specific_hardware": provider.name != "common-psutil",
             "memory_totals": memory_summary is not None,
             "volume_capacity": bool(volumes),
+            "gpu_memory": bool(platform_inventory["gpus"])
+            and all(gpu["dedicated_memory_gib"] is not None for gpu in platform_inventory["gpus"]),
         },
     }
     return inventory, notes
