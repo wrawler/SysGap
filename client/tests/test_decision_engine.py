@@ -58,6 +58,16 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertEqual(finding["status"], "unknown")
         self.assertIn("ambiguous", finding["title"])
 
+    def test_integrated_vram_is_not_assumed_to_be_discrete_workload_gpu(self):
+        hardware = inventory(gpus=[
+            {"name": "NVIDIA RTX Example", "dedicated_memory_gib": None},
+            {"name": "Intel Graphics", "dedicated_memory_gib": 2},
+        ])
+        result = evaluate_assessment(questionnaire(vram=6), hardware)
+        finding = next(item for item in result["findings"] if item["area"] == "graphics_memory")
+        self.assertEqual(finding["status"], "unknown")
+        self.assertIn("ambiguous", finding["title"])
+
     def test_explicit_gpu_selection_uses_only_matching_adapter(self):
         hardware = inventory(gpus=[
             {"name": "GPU A", "dedicated_memory_gib": 4},

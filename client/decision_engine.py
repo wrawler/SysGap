@@ -97,16 +97,13 @@ def evaluate_assessment(
 
     gpus = inventory.get("gpus") or []
     gpu_used = (questionnaire.get("context") or {}).get("gpu_used_by_workload")
-    usable_gpus = [
-        gpu for gpu in gpus
-        if _positive_requirement(gpu.get("dedicated_memory_gib")) is not None
-    ]
+    usable_gpus = [gpu for gpu in gpus if _positive_requirement(gpu.get("dedicated_memory_gib")) is not None]
     selected_gpu = None
     gpu_selection_ambiguous = False
     if gpu_used:
         normalized_name = str(gpu_used).casefold()
         matches = [
-            gpu for gpu in usable_gpus
+            gpu for gpu in gpus
             if normalized_name in str(gpu.get("name") or "").casefold()
             or str(gpu.get("name") or "").casefold() in normalized_name
         ]
@@ -115,13 +112,20 @@ def evaluate_assessment(
         else:
             gpu_selection_ambiguous = True
     elif len(usable_gpus) == 1:
-        selected_gpu = usable_gpus[0]
-    elif len(usable_gpus) > 1:
+        if len(gpus) == 1:
+            selected_gpu = usable_gpus[0]
+        else:
+            gpu_selection_ambiguous = True
+    elif len(gpus) > 1 or len(usable_gpus) > 1:
         gpu_selection_ambiguous = True
 
     available_vram = [
-        value for value in (_positive_requirement(gpu.get("dedicated_memory_gib")) for gpu in gpus)
-        if value is not None
+        {
+            "adapter": gpu.get("name") or "Unknown GPU",
+            "dedicated_vram_gib": _positive_requirement(gpu.get("dedicated_memory_gib")),
+        }
+        for gpu in gpus
+        if _positive_requirement(gpu.get("dedicated_memory_gib")) is not None
     ]
     detected_vram = (
         _positive_requirement(selected_gpu.get("dedicated_memory_gib"))
@@ -131,7 +135,7 @@ def evaluate_assessment(
     if required_vram is None:
         findings.append(_finding(
             "graphics_memory", "unknown", "Dedicated VRAM requirement not provided",
-            [f"Detected dedicated VRAM values: {available_vram} GiB." if available_vram
+            [f"Detected dedicated VRAM by adapter: {available_vram}." if available_vram
              else "Dedicated VRAM was unavailable or not reported by the operating system."],
             ["Shared/system GPU memory is not treated as dedicated VRAM."],
             "low", "Check the workload's official GPU-memory requirement if one is published.",
@@ -153,7 +157,7 @@ def evaluate_assessment(
             "low",
             "Select the adapter used by the workload or check it in the application's graphics settings.",
         ))
-    elif detected_vram is None:
+    elif selected_gpu is None or detected_vram is None:
         findings.append(_finding(
             "graphics_memory", "unknown", "VRAM comparison unavailable",
             [f"User supplied minimum: {required_vram:g} GiB; dedicated VRAM could not be verified."],

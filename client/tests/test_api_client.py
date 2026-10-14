@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import patch
 
@@ -37,6 +38,7 @@ class ApiClientTests(unittest.TestCase):
             "questionnaire": {"purpose": "gaming"},
             "hardware": {"cpu": {"name": "Example"}},
             "assessment": {"overall_status": "unknown"},
+            "recommendations": [{"component": "ram", "status": "not_ranked"}],
             "ambient_sample": None,
         }
         result = upload_report("https://example.com/api/v1/reports", report)
@@ -44,6 +46,37 @@ class ApiClientTests(unittest.TestCase):
         request = build_opener.return_value.open.call_args.args[0]
         self.assertEqual(request.method, "POST")
         self.assertEqual(request.get_header("Content-type"), "application/json")
+        posted = json.loads(request.data)
+        self.assertEqual(posted["telemetry"]["recommendations"][0]["component"], "ram")
+
+    @patch("api_client.urllib.request.build_opener")
+    def test_resolves_relative_report_url_to_absolute_api_url(self, build_opener):
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _size):
+                return b'{"report_url":"/api/v1/reports/abcd1234"}'
+
+        build_opener.return_value.open.return_value = Response()
+        result = upload_report(
+            "https://api.example.test/api/v1/reports",
+            {
+                "schema_version": 1,
+                "questionnaire": {"purpose": "gaming"},
+                "hardware": {},
+                "assessment": {},
+            },
+        )
+        self.assertEqual(
+            result["report_url"],
+            "https://api.example.test/api/v1/reports/abcd1234",
+        )
 
 
 if __name__ == "__main__":

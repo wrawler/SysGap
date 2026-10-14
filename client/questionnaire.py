@@ -61,6 +61,19 @@ def _optional_positive_number(
         print("Enter a positive number or leave blank if unknown.")
 
 
+def _optional_positive_integer(
+    prompt: str,
+    input_fn: Callable[[str], str],
+) -> int | None:
+    while True:
+        value = input_fn(prompt).strip()
+        if not value:
+            return None
+        if value.isdigit() and int(value) > 0:
+            return int(value)
+        print("Enter a positive whole number or leave blank if unknown.")
+
+
 def run_questionnaire(input_fn: Callable[[str], str] = input) -> dict[str, Any]:
     purpose = _choose("What do you mainly want to use this PC for?", PURPOSES, input_fn)
     symptom = _choose("Which best describes your current situation?", SYMPTOMS, input_fn)
@@ -103,6 +116,12 @@ def run_questionnaire(input_fn: Callable[[str], str] = input) -> dict[str, Any]:
         ),
         "min_vram_gib": _optional_positive_number(
             "Minimum dedicated VRAM required (GiB, optional): ", input_fn
+        ),
+        "min_cpu_cores": _optional_positive_integer(
+            "Minimum CPU physical cores required by the workload (optional): ", input_fn
+        ),
+        "min_cpu_base_clock_ghz": _optional_positive_number(
+            "Minimum CPU performance-core base clock (GHz, optional): ", input_fn
         ),
         "min_free_storage_gib": _optional_positive_number(
             "Minimum free workspace/storage required (GiB, optional): ", input_fn

@@ -20,7 +20,7 @@ def _validate_url(url: str) -> None:
     if parsed.username or parsed.password:
         raise ValueError("Do not embed credentials in the API URL.")
     if parsed.scheme != "https" and not (parsed.scheme == "http" and local_http):
-        raise ValueError("Report upload requires HTTPS; HTTP is allowed only for localhost.")
+        raise ValueError("API requests require HTTPS; HTTP is allowed only for localhost.")
     if not parsed.netloc or parsed.fragment:
         raise ValueError("API URL must be an absolute URL.")
 
@@ -36,6 +36,7 @@ def upload_report(url: str, report: dict[str, Any], timeout: float = 8.0) -> dic
             "questionnaire": report["questionnaire"],
             "assessment": report["assessment"],
             "ambient_sample": report.get("ambient_sample"),
+            "recommendations": report.get("recommendations", []),
         },
     }
     request = urllib.request.Request(
@@ -60,4 +61,7 @@ def upload_report(url: str, report: dict[str, Any], timeout: float = 8.0) -> dic
         raise RuntimeError("API response was not valid JSON.") from error
     if not isinstance(decoded, dict):
         raise RuntimeError("API response must be a JSON object.")
+    report_url = decoded.get("report_url")
+    if isinstance(report_url, str):
+        decoded["report_url"] = urllib.parse.urljoin(url, report_url)
     return decoded

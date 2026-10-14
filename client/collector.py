@@ -128,6 +128,32 @@ def _render(report: dict[str, Any]) -> str:
     if assessment["collection_notes"]:
         lines.extend(["", "COLLECTION NOTES", "----------------"])
         lines.extend(f"- {item}" for item in assessment["collection_notes"])
+    recommendations = report.get("recommendations") or []
+    if recommendations:
+        lines.extend(["", "CANDIDATE SHORTLISTS", "--------------------"])
+        for shortlist in recommendations:
+            lines.extend([
+                f"{shortlist['component'].upper()}: {shortlist['status']}",
+                f"  Ranking: {shortlist.get('ranking_method', 'not ranked')}",
+            ])
+            query = shortlist.get("query")
+            if isinstance(query, dict):
+                lines.append(
+                    f"  Query criteria: {json.dumps(query.get('filters', []), ensure_ascii=False)}"
+                )
+            for candidate in shortlist.get("candidates", []):
+                capacity = candidate.get("capacity_value_gib")
+                capacity_text = f"; capacity {capacity:g} GiB" if isinstance(capacity, (int, float)) else ""
+                lines.append(
+                    f"  - {candidate.get('manufacturer') or ''} {candidate.get('model') or 'Unknown model'}"
+                    f"{capacity_text}; compatibility {candidate.get('compatibility_status', 'unknown')}"
+                )
+                lines.append(f"    Specs: {json.dumps(candidate.get('details') or {}, ensure_ascii=False)}")
+                lines.append(f"    OpenDB ID: {candidate.get('candidate_id')}")
+                if candidate.get("manufacturer_source_url"):
+                    lines.append(f"    Manufacturer specs: {candidate['manufacturer_source_url']}")
+                lines.extend(f"    Note: {note}" for note in candidate.get("notes", []))
+            lines.extend(f"  Note: {note}" for note in shortlist.get("notes", []))
     lines.append("")
     return "\n".join(lines)
 
