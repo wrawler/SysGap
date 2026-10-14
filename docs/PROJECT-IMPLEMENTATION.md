@@ -648,3 +648,92 @@ Health check:
 ```text
 https://sysgap-api.greenisland-25c48125.eastasia.azurecontainerapps.io/healthz
 ```
+
+## 18. Cross-platform client structure and user experience
+
+The client was expanded from a Windows-focused script collection into a
+lightweight cross-platform Python application while preserving its
+evidence-bound assessment model.
+
+### Application structure
+
+The client now includes:
+
+- `client/cli.py` as the structured command-line entry point.
+- `client/config.py` for shared endpoint configuration.
+- `client/platform_provider.py` for the inventory-provider contract.
+- `client/report_repository.py` for shared JSON/text report persistence.
+- `client/ui.py` for concise Rich-based terminal presentation.
+- `client/run.sh` for Linux and macOS-friendly startup.
+- `client/SysGap.bat` for Windows startup.
+
+The guided workflow is available as:
+
+```bash
+python cli.py run
+python cli.py run --no-color
+python cli.py run --verbose
+```
+
+The terminal output is intentionally concise. It presents the local
+assessment, optional catalog lookup, and optional upload as separate phases.
+The complete technical inventory remains in JSON, while the default text
+report is a shorter readable summary.
+
+### Report metadata and privacy
+
+New local reports include:
+
+- `report_id`
+- `client_version`
+- collection provider
+- collection capability metadata
+- complete assessment evidence and limitations
+
+Local-only metadata and complete catalog lookup history are not included in
+the upload payload. Uploads remain explicitly consented and separate from
+catalog lookup.
+
+The client transport additionally:
+
+- Requires HTTPS except for loopback development.
+- Rejects embedded URL credentials.
+- Blocks redirects.
+- Limits upload payloads to 2 MiB.
+- Limits API responses to 1 MiB.
+
+### Linux and Fedora collection
+
+Windows continues to use the detailed WMI provider. Linux uses a conservative
+common provider with additional safe Linux discovery:
+
+- CPU model from `/proc/cpuinfo`.
+- Physical and logical CPU counts through `psutil`.
+- GPU names through `lspci` when available.
+- Memory totals and mounted-volume capacity through `psutil`.
+
+GPU memory/utilization, physical disk identity, motherboard, BIOS, and memory
+module details remain unknown unless a platform provider can collect them
+reliably. The client does not infer these values. NVIDIA passive telemetry
+uses optional `pynvml` and does not provide readings for AMD or Intel GPUs.
+
+The Fedora validation environment reported:
+
+```text
+CPU: 12th Gen Intel(R) Core(TM) i5-12400F
+Physical cores: 6
+Logical processors: 12
+GPU: Navi 23 / Radeon RX 6600 family
+RAM: approximately 15.41 GiB
+```
+
+### Validation
+
+The client test suite passed with:
+
+```text
+71 passed
+```
+
+Additional validation included Python syntax checks, POSIX launcher syntax,
+CLI help smoke tests, and `git diff --check`.
