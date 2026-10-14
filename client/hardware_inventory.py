@@ -47,6 +47,20 @@ def _query(connection: Any, method: str, notes: list[str]) -> list[Any]:
         return []
 
 
+def _chassis_category(values: Any) -> str:
+    try:
+        codes = {int(value) for value in values}
+    except (TypeError, ValueError):
+        return "unknown"
+    desktop_codes = {3, 4, 5, 6, 7, 13, 15, 16, 17, 23, 24}
+    laptop_codes = {8, 9, 10, 11, 14, 30, 31, 32}
+    is_desktop = bool(codes & desktop_codes)
+    is_laptop = bool(codes & laptop_codes)
+    if is_desktop == is_laptop:
+        return "unknown"
+    return "desktop" if is_desktop else "laptop"
+
+
 def _windows_inventory(notes: list[str]) -> dict[str, Any]:
     result: dict[str, Any] = {
         "computer": None,
@@ -120,11 +134,15 @@ def _windows_inventory(notes: list[str]) -> dict[str, Any]:
 
     system = next(iter(_query(connection, "Win32_ComputerSystem", notes)), None)
     if system is not None:
+        enclosure = next(iter(_query(connection, "Win32_SystemEnclosure", notes)), None)
+        chassis_types = getattr(enclosure, "ChassisTypes", None) if enclosure is not None else None
         result["computer"] = {
             "manufacturer": _clean(getattr(system, "Manufacturer", None)),
             "model": _clean(getattr(system, "Model", None)),
             "total_memory_gib": _gib(getattr(system, "TotalPhysicalMemory", None)),
             "system_type": _clean(getattr(system, "SystemType", None)),
+            "chassis_types": [_number(value) for value in chassis_types] if chassis_types else [],
+            "form_factor": _chassis_category(chassis_types),
         }
 
     bios = next(iter(_query(connection, "Win32_BIOS", notes)), None)

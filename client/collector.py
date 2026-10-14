@@ -104,6 +104,51 @@ def _render(report: dict[str, Any]) -> str:
             f"  Next step: {finding['next_step']}",
             "",
         ])
+    profile_comparison = assessment.get("profile_comparison") or {}
+    if profile_comparison.get("profile_label") or profile_comparison.get("metrics"):
+        lines.extend([
+            "PROFILE / REQUIREMENT FLOOR COMPARISON",
+            "--------------------------------------",
+            f"Profile: {profile_comparison.get('profile_label') or 'User-entered requirements'}",
+            profile_comparison.get("description") or "",
+            "Attainment is observed capacity divided by that metric's floor, capped at 100%; it is not a performance score or bottleneck diagnosis.",
+        ])
+        for metric in profile_comparison.get("metrics", []):
+            observed = metric.get("observed")
+            target = metric.get("target")
+            source = (
+                "profile default"
+                if metric.get("requirement_source") == "purpose_profile"
+                else "user supplied"
+            )
+            if observed is None:
+                detail = "comparison unknown"
+            else:
+                detail = f"{metric['target_attainment_percent']:.1f}% of floor"
+            observed_text = (
+                f"{observed:g} {metric['unit']}" if isinstance(observed, (int, float))
+                else "not detected"
+            )
+            lines.append(
+                f"- {metric['label']}: {detail}; detected {observed_text}; "
+                f"target {target:g} {metric['unit']} ({source}; {metric['status']})"
+            )
+        for component, score in (profile_comparison.get("component_scores") or {}).items():
+            score_text = (
+                f"{score['score']:.1f}/100"
+                if isinstance(score.get("score"), (int, float))
+                else "unknown"
+            )
+            lines.append(
+                f"  {component.upper()} profile-fit score: {score_text} "
+                f"({score['status']}; based on {score['basis']})"
+            )
+            lines.append(f"    Score limitation: {score['limits']}")
+        lines.extend(
+            f"- Profile assumption: {item}"
+            for item in profile_comparison.get("assumptions", [])
+        )
+        lines.append("")
     lines.extend([
         "LIMITATIONS",
         "-----------",
@@ -128,6 +173,68 @@ def _render(report: dict[str, Any]) -> str:
     if assessment["collection_notes"]:
         lines.extend(["", "COLLECTION NOTES", "----------------"])
         lines.extend(f"- {item}" for item in assessment["collection_notes"])
+    selection = report.get("recommendation_selection") or {}
+    if selection:
+        lines.extend([
+            "",
+            "TOP COMPONENT GAPS SELECTED FOR BACKEND",
+            "----------------------------------------",
+            "Ranked by profile-fit shortfall (100 minus score); at most two component categories are selected.",
+        ])
+        selected_components = selection.get("selected_components") or []
+        if selected_components:
+            lines.extend(
+                f"- {item['component'].upper()}: score "
+                f"{item['profile_fit_score']:.1f}/100; "
+                f"gap {item['profile_floor_gap']:.1f} points; "
+                f"{item['candidate_count']} candidate(s)"
+                for item in selected_components
+            )
+        else:
+            lines.append("- None: no known below-floor component had passing catalog candidates.")
+    recommendations = report.get("recommendations") or []
+    if recommendations:
+        lines.extend(["", "CANDIDATE SHORTLISTS", "--------------------"])
+        for shortlist in recommendations:
+            lines.extend([
+                f"{shortlist['component'].upper()}: {shortlist['status']}",
+                f"  Ranking: {shortlist.get('ranking_method', 'not ranked')}",
+            ])
+            installed_comparison = shortlist.get("installed_comparison")
+            if isinstance(installed_comparison, dict):
+                installed_value = installed_comparison.get("installed_value_gib")
+                required_value = installed_comparison.get("required_value_gib")
+                comparison_text = (
+                    f"  Installed comparison: {installed_comparison.get('status', 'unknown')}"
+                )
+                if isinstance(installed_value, (int, float)):
+                    comparison_text += f"; detected {installed_value:g} GiB"
+                if isinstance(required_value, (int, float)):
+                    comparison_text += f"; supplied floor {required_value:g} GiB"
+                lines.append(comparison_text)
+            query = shortlist.get("query")
+            if isinstance(query, dict):
+                lines.append(
+                    f"  Query criteria: {json.dumps(query.get('filters', []), ensure_ascii=False)}"
+                )
+            for candidate in shortlist.get("candidates", []):
+                capacity = candidate.get("capacity_value_gib")
+                capacity_text = f"; capacity {capacity:g} GiB" if isinstance(capacity, (int, float)) else ""
+                lines.append(
+                    f"  - {candidate.get('manufacturer') or ''} {candidate.get('model') or 'Unknown model'}"
+                    f"{capacity_text}; compatibility {candidate.get('compatibility_status', 'unknown')}"
+                )
+                if candidate.get("why_shown"):
+                    lines.append(f"    Why shown: {candidate['why_shown']}")
+                lines.append(f"    Specs: {json.dumps(candidate.get('details') or {}, ensure_ascii=False)}")
+                lines.append(
+                    "    Price/value: unavailable; candidate ordering uses closest passing specifications only."
+                )
+                lines.append(f"    OpenDB ID: {candidate.get('candidate_id')}")
+                if candidate.get("manufacturer_source_url"):
+                    lines.append(f"    Manufacturer specs: {candidate['manufacturer_source_url']}")
+                lines.extend(f"    Note: {note}" for note in candidate.get("notes", []))
+            lines.extend(f"  Note: {note}" for note in shortlist.get("notes", []))
     lines.append("")
     return "\n".join(lines)
 
