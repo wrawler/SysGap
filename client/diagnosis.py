@@ -35,6 +35,15 @@ def _run(command: Sequence[str], label: str) -> int:
         return 1
 
 
+def _remove_intermediate_report(report_path: Path) -> None:
+    """Remove the collection-only pair after a successful finalization."""
+    for path in (report_path, report_path.with_suffix(".txt")):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as error:
+            raise RuntimeError(f"Could not remove intermediate report {path}: {error}") from error
+
+
 def run_workflow(
     *,
     output_dir: Path | None = None,
@@ -113,10 +122,15 @@ def run_workflow(
     )
     if comparison_status != 0:
         output.print(
-            "[yellow]Local assessment retained.[/yellow] Catalog lookup or upload did not complete.",
-            file=sys.stderr,
+            "[yellow]Local assessment retained.[/yellow] Catalog lookup or upload did not complete."
         )
         return comparison_status
+
+    try:
+        _remove_intermediate_report(report_path)
+    except RuntimeError as error:
+        output.print(f"[red]{error}[/red]", file=sys.stderr)
+        return 1
 
     output.print(f"\n[green]Done.[/green] Local reports: {output_dir.resolve()}")
     output.print("[dim]Any upload was made only after explicit consent.[/dim]")

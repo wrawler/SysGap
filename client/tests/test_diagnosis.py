@@ -36,6 +36,31 @@ class DiagnosisOrchestratorTests(unittest.TestCase):
                 commands[1][commands[1].index("--components") + 1:],
                 ["cpu", "gpu", "ram", "storage", "--upload"],
             )
+            self.assertFalse(report_path.exists())
+
+    def test_keeps_intermediate_reports_when_comparison_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report_dir = Path(directory)
+            report_path = report_dir / "assessment_20260101_000000_abc12345.json"
+            report_path.write_text("{}", encoding="utf-8")
+            report_path.with_suffix(".txt").write_text("summary", encoding="utf-8")
+
+            def run(command, cwd, check):
+                if command[1].endswith("collector.py"):
+                    return SimpleNamespace(returncode=0)
+                return SimpleNamespace(returncode=2)
+
+            with (
+                patch.object(diagnosis, "REPORT_DIR", report_dir),
+                patch.object(diagnosis, "CLIENT_DIR", report_dir),
+                patch("builtins.input", return_value="n"),
+                patch("diagnosis.subprocess.run", side_effect=run),
+                patch.object(diagnosis, "_created_assessment", return_value=report_path),
+            ):
+                self.assertEqual(diagnosis.main(), 2)
+
+            self.assertTrue(report_path.exists())
+            self.assertTrue(report_path.with_suffix(".txt").exists())
 
     def test_locates_only_newly_created_assessment(self):
         with tempfile.TemporaryDirectory() as directory:
