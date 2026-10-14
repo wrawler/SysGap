@@ -737,3 +737,40 @@ The client test suite passed with:
 
 Additional validation included Python syntax checks, POSIX launcher syntax,
 CLI help smoke tests, and `git diff --check`.
+
+## 19. Personalized presets, report consolidation, and minimized telemetry
+
+The client questionnaire was changed to avoid free-form application, game,
+and model names that did not affect downstream assessment. A versioned offline
+preset catalog now provides:
+
+- Gaming targets for 1080p balanced play, 1440p high quality, and 4K high
+  quality.
+- Video-editing targets for 1080p light work, 4K standard editing, and
+  effects-heavy 4K work.
+- Local-AI targets for up to 7B, 13B, and 30B parameters at 4-bit
+  quantization.
+
+Local-AI questions also capture context length and CPU/GPU inference mode.
+These inputs adjust transparent planning floors; they are heuristics and not
+vendor requirements. User-entered official numeric requirements still override
+the relevant preset floor.
+
+Successful guided runs now retain one final JSON/text report pair. The
+collection-only pair is removed only after catalog comparison succeeds. If
+comparison or upload fails, the intermediate local pair is retained so the
+user does not lose the assessment.
+
+Upload privacy was tightened independently from local report detail. Default
+telemetry contains only coarse hardware capacities, structured preset context,
+effective requirements, compact findings, and the selected recommendation
+shortlist. Device identity, mount paths, raw free-form requirement text,
+ambient samples, and complete catalog lookup history are excluded. The
+`--share-details` option is an explicit advanced-sharing opt-in for detailed
+hardware and questionnaire data.
+
+Validation after these phases:
+
+```text
+78 client tests passed
+```

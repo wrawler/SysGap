@@ -145,8 +145,9 @@ The structured CLI entry point is also available on every platform:
 python cli.py run
 ```
 
-The client collects hardware inventory and creates a local report. Upload is
-disabled unless explicitly requested.
+The client collects hardware inventory and creates a local report. Guided runs
+use curated workload presets instead of free-form application or model names.
+Upload is disabled unless explicitly requested.
 
 Use `python cli.py run --no-color` for plain log-friendly output or
 `python cli.py run --verbose` for additional collection details. The terminal
@@ -154,7 +155,10 @@ stays concise; the JSON report retains the complete technical result and the
 text report contains a shorter readable summary.
 
 Client uploads enforce HTTPS (except loopback development), block redirects,
-bound request and response sizes, and exclude local-only catalog lookup data.
+bound request and response sizes, and minimize telemetry by default. They send
+coarse capacities and compact findings rather than device identity, paths,
+raw questionnaire text, ambient samples, or lookup history. Use
+`--share-details` with `--upload` only for explicit advanced sharing.
 
 To upload to an API:
 

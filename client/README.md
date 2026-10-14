@@ -8,10 +8,10 @@ Unsupported fields remain unknown. The report records the provider and
 collection capabilities so missing platform data is visible rather than
 inferred.
 
-The client asks about the intended workload, gathers a one-time Windows
-hardware inventory, compares detectable capacity with user-supplied
-requirements or labeled purpose-profile floors, and writes a local JSON and
-readable text report.
+The client asks about the intended workload, gathers a one-time platform
+inventory, compares detectable capacity with curated workload-preset floors,
+and writes one final local JSON and readable text report after a successful
+guided run.
 
 It does **not** run benchmarks or stress tests, invent telemetry, or claim to
 identify a live bottleneck. Missing requirements and unsupported hardware
@@ -19,11 +19,24 @@ readings remain unknown. Profile floors are provisional planning heuristics,
 not official requirements. Meeting a floor is not proof that an application
 will perform well.
 
-## Purpose-profile fallback floors
+## Workload presets and fallback floors
+
+Gaming, video editing, and local AI use curated offline presets rather than
+free-form application, game, or model names. Presets record a stable ID and
+data version in the report. Gaming presets cover 1080p, 1440p, and 4K quality
+targets; editing presets cover 1080p light work and two 4K complexity levels;
+AI presets cover up to 7B, 13B, and 30B parameter models with 4-bit
+quantization. AI runs also ask for context length and CPU/GPU inference mode,
+which adjust the planning floors transparently.
+
+Preset values are planning heuristics, not vendor requirements or performance
+guarantees. Users can still enter official numeric requirements, which
+override the corresponding preset value.
 
 When a user leaves an individual numeric requirement blank, the assessment and
-catalog query use that metric's default from the selected purpose profile.
-Explicit numeric answers override only their corresponding profile value.
+catalog query use that metric's default from the selected workload preset,
+then the purpose profile when no preset supplies that metric. Explicit numeric
+answers override only their corresponding value.
 `upgrade_planning` and `other` intentionally have no default profile. Profile
 values are visible in the report with their source; they should not be
 presented as requirements from a particular app or as proven bottleneck
@@ -113,9 +126,10 @@ for this setup. Later launches reuse that environment. If requirements change,
 run `.venv\Scripts\python.exe -m pip install -r requirements.txt` from this
 folder.
 
-Reports are saved as JSON and readable text files under `reports/`. The
-combined local candidate report uses the `_with_recommendations` filename
-suffix. It stores all per-component catalog lookups for local traceability,
+Reports are saved as one final JSON and one readable text file under
+`reports/` after the guided workflow succeeds. If catalog lookup or upload
+fails, the collection-only pair is retained so the user can recover locally.
+The final JSON stores all per-component catalog lookups for local traceability,
 but the readable report and `recommendations` section show only the selected
 categories. Before upload, components with known numeric profile-fit scores
 and passing catalog candidates are ranked by their shortfall from 100; only
@@ -124,6 +138,17 @@ selected category includes at most two candidate models. Unknown scores,
 scores already at 100, and categories with no passing candidates are not
 selected. The local report records the selected categories and their score
 gaps; the all-component lookup data is not sent to the backend.
+Uploads are minimized by default. The backend receives coarse hardware
+capacities, structured preset context, effective requirement floors, compact
+findings, and the selected shortlist. Device names, mount paths, raw
+free-form requirement text, ambient samples, and full lookup history are
+excluded. Pass `--share-details` with `--upload` only when you explicitly
+want detailed hardware and questionnaire data included.
+
+```powershell
+python compare_and_submit.py --report .\reports\<assessment-file>.json `
+  --components cpu gpu ram storage --upload --share-details
+```
 If the catalog API is unavailable, the local assessment remains available;
 correct the network/API setting and rerun comparison with the saved JSON.
 Each new assessment also includes a stable `report_id`, `client_version`,
