@@ -6,6 +6,10 @@ import datetime as dt
 import math
 import os
 import platform
+import re
+import shutil
+import subprocess
+from pathlib import Path
 from typing import Any
 
 import psutil
@@ -74,19 +78,84 @@ class _CommonInventoryProvider:
     name = "common-psutil"
 
     def collect(self, notes: list[str]) -> dict[str, Any]:
-        notes.append(
-            "Platform-specific hardware inventory is not available on this platform; "
-            "common memory and volume readings are used."
-        )
-        return {
+        result = {
             "computer": None,
-            "cpu": None,
+            "cpu": {
+                "name": _clean(platform.processor()),
+                "manufacturer": None,
+                "physical_cores": _number(psutil.cpu_count(logical=False)),
+                "logical_processors": _number(psutil.cpu_count(logical=True)),
+                "max_clock_mhz": None,
+                "socket_designation": None,
+            },
             "gpus": [],
             "memory_modules": [],
             "physical_disks": [],
             "motherboard": None,
             "bios": None,
         }
+        if not result["cpu"]["name"] and os.name != "nt":
+            result["cpu"]["name"] = _linux_cpu_name()
+        if not result["cpu"]["name"]:
+            notes.append("CPU model name was not available from the common platform APIs.")
+        if platform.system() == "Linux":
+            result["gpus"] = _linux_gpu_names(notes)
+        notes.append(
+            "Detailed motherboard, BIOS, memory-module, physical-disk, and GPU-memory "
+            "inventory is not available from the common provider."
+        )
+        return result
+
+
+def _linux_cpu_name() -> str | None:
+    try:
+        for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+            if line.lower().startswith("model name"):
+                _, _, value = line.partition(":")
+                return _clean(value)
+    except (OSError, UnicodeError):
+        return None
+    return None
+
+
+def _linux_gpu_names(notes: list[str]) -> list[dict[str, Any]]:
+    command = shutil.which("lspci")
+    if not command:
+        notes.append("Linux GPU names unavailable: lspci was not found.")
+        return []
+    try:
+        completed = subprocess.run(
+            [command, "-mm", "-nn"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        notes.append("Linux GPU names unavailable: lspci could not be queried.")
+        return []
+    if completed.returncode != 0:
+        notes.append("Linux GPU names unavailable: lspci returned an error.")
+        return []
+    gpus = []
+    for line in completed.stdout.splitlines():
+        if not re.search(
+            r'"(?:VGA compatible controller|3D controller|Display controller)\s*\[',
+            line,
+        ):
+            continue
+        fields = re.findall(r'"([^"]*)"', line)
+        name = fields[2] if len(fields) >= 3 else None
+        gpus.append({
+            "name": _clean(name),
+            "manufacturer": None,
+            "dedicated_memory_gib": None,
+            "driver_version": None,
+            "status": None,
+        })
+    if not gpus:
+        notes.append("Linux GPU names were not reported by lspci.")
+    return gpus
 
 
 def _windows_inventory(notes: list[str]) -> dict[str, Any]:
@@ -253,7 +322,7 @@ def collect_inventory() -> tuple[dict[str, Any], list[str]]:
         "collection_mode": "one-time inventory; no benchmark or stress test",
         "collection_provider": provider.name,
         "collection_capabilities": {
-            "platform_specific_hardware": provider.name != "psutil-common",
+            "platform_specific_hardware": provider.name != "common-psutil",
             "memory_totals": memory_summary is not None,
             "volume_capacity": bool(volumes),
         },

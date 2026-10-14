@@ -1,10 +1,12 @@
 # SysGap client-side assessment
 
 The client currently uses a lightweight Python core with a platform-provider
-boundary. Windows has detailed WMI collection; Linux and macOS currently use
-the reliable common `psutil` collection path and explicitly leave unsupported
-hardware fields unknown. The report records the provider and collection
-capabilities so missing platform data is visible rather than inferred.
+boundary. Windows has detailed WMI collection. Linux now collects common
+memory/volume data, CPU identity/core counts, and GPU names through `lspci`
+when available; macOS uses the reliable common `psutil` path for now.
+Unsupported fields remain unknown. The report records the provider and
+collection capabilities so missing platform data is visible rather than
+inferred.
 
 The client asks about the intended workload, gathers a one-time Windows
 hardware inventory, compares detectable capacity with user-supplied
@@ -90,10 +92,20 @@ The same workflow is available through the structured CLI entry point:
 ```sh
 python cli.py run
 python cli.py run --sample-seconds 10
+python cli.py run --no-color
+python cli.py run --verbose
 ```
 
 `diagnosis.py` remains available as a compatibility entry point. The Windows
 batch launcher and the POSIX `run.sh` launcher invoke `cli.py run`.
+
+The live terminal view is intentionally concise: it shows the current phase,
+short prompts, a small result summary, and report paths. Rich formatting is
+used when supported, while `--no-color` produces plain output for logs and
+redirected terminals. Use `--verbose` when you want the technical collection
+notes and profile assumptions during the run. The saved JSON report always
+retains the complete technical data; the saved text report is a shorter
+human-readable summary.
 
 On first launch, the batch file creates an isolated `.venv` in this folder and
 installs the packages listed in `requirements.txt`; internet access is needed

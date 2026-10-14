@@ -77,7 +77,11 @@ def _optional_positive_integer(
         print("Enter a positive whole number or leave blank if unknown.")
 
 
-def run_questionnaire(input_fn: Callable[[str], str] = input) -> dict[str, Any]:
+def run_questionnaire(
+    input_fn: Callable[[str], str] = input,
+    *,
+    verbose: bool = False,
+) -> dict[str, Any]:
     purpose = _choose("What do you mainly want to use this PC for?", PURPOSES, input_fn)
     symptom = _choose("Which best describes your current situation?", SYMPTOMS, input_fn)
     activity = _optional_text(
@@ -117,7 +121,7 @@ def run_questionnaire(input_fn: Callable[[str], str] = input) -> dict[str, Any]:
         )
 
     profile = PROFILES.get(purpose)
-    if profile:
+    if profile and verbose:
         print(f"\nSelected fallback: {profile['label']}")
         print(profile["description"])
         defaults = profile["requirements"]
@@ -131,8 +135,7 @@ def run_questionnaire(input_fn: Callable[[str], str] = input) -> dict[str, Any]:
             )
             if value is not None
         )
-        print(f"Blank numeric answers use these provisional planning floors: {default_text}.")
-        print("They are not official requirements and do not predict performance.")
+        print(f"Planning floors used for blank answers: {default_text}.")
 
     print(
         "\nIf you have the application's official system requirements, enter the "

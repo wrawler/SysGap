@@ -30,6 +30,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Optional passive sample duration, from 1 to 30 seconds.",
     )
+    run.add_argument("--no-color", action="store_true", help="Disable styled terminal output.")
+    run.add_argument("--verbose", action="store_true", help="Show technical collection details.")
     return parser
 
 
@@ -41,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     return diagnosis.run_workflow(
         output_dir=args.output_dir,
         sample_seconds=args.sample_seconds,
+        no_color=args.no_color,
+        verbose=args.verbose,
     )
 
 

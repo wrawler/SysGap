@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from ui import console, header, phase
+
 
 CLIENT_DIR = Path(__file__).resolve().parent
 REPORT_DIR = CLIENT_DIR / "reports"
@@ -37,29 +39,24 @@ def run_workflow(
     *,
     output_dir: Path | None = None,
     sample_seconds: int | None = None,
+    no_color: bool = False,
+    verbose: bool = False,
 ) -> int:
     output_dir = output_dir or REPORT_DIR
+    output = console(no_color=no_color)
     if sys.version_info < (3, 10):
-        print("[ERROR] SysGap requires Python 3.10 or newer.", file=sys.stderr)
+        output.print("[red]SysGap requires Python 3.10 or newer.[/red]", file=sys.stderr)
         return 1
 
-    print(
-        "\n"
-        "  +------------------------------------------------------------+\n"
-        "  |                         SYSGAP                             |\n"
-        "  |       HARDWARE COLLECTION  >  PROFILE SCORING               |\n"
-        "  |       CATALOG SHORTLIST    >  BACKEND SUBMISSION             |\n"
-        "  +------------------------------------------------------------+\n"
-        "  Assessment is local until you explicitly consent to upload.\n"
-        "  No benchmark, stress test, or browser-based report is used.\n"
-    )
+    header(output)
+    output.print("[dim]Local first. Catalog lookup and upload are separate optional steps.[/dim]")
     if sample_seconds is None:
         sample_answer = input(
             "  Include a 10-second ambient activity sample? [y/N]: "
         ).strip().casefold()
         sample_seconds = 10 if sample_answer in {"y", "yes"} else 0
     elif not 0 <= sample_seconds <= 30:
-        print("[ERROR] --sample-seconds must be between 0 and 30.", file=sys.stderr)
+        output.print("[red]--sample-seconds must be between 0 and 30.[/red]", file=sys.stderr)
         return 1
 
     try:
@@ -69,18 +66,21 @@ def run_workflow(
             for path in output_dir.glob("assessment_*.json")
         }
     except OSError as error:
-        print(f"[ERROR] Could not access the reports directory: {error}", file=sys.stderr)
+        output.print(f"[red]Could not access the reports directory:[/red] {error}", file=sys.stderr)
         return 1
 
-    print("\n  STEP 1 / 2   COLLECTION AND PROFILE SCORING")
-    print("  Answer the guided questions; blank requirement fields use the")
-    print("  selected profile's labeled planning floors when available.")
+    phase(output, 1, 2, "Local assessment", "Answer a few short questions; no data is sent yet.")
     collector_command = [
         sys.executable,
         str(CLIENT_DIR / "collector.py"),
         "--output-dir",
         str(output_dir),
     ]
+    if no_color:
+        collector_command.append("--no-color")
+    collector_command.append("--no-header")
+    if verbose:
+        collector_command.append("--verbose")
     if sample_seconds:
         collector_command.extend(["--sample-seconds", str(sample_seconds)])
     collection_status = _run(collector_command, "Collecting and scoring this PC")
@@ -90,12 +90,10 @@ def run_workflow(
     try:
         report_path = _created_assessment(before, output_dir)
     except (OSError, RuntimeError) as error:
-        print(f"[ERROR] {error}", file=sys.stderr)
+        output.print(f"[red]{error}[/red]", file=sys.stderr)
         return 1
 
-    print("\n  STEP 2 / 2   SCORE-BASED CATALOG LOOKUP AND REPORT")
-    print("  Each component score is checked separately; catalog options are")
-    print("  requested only for components with a known gap.")
+    phase(output, 2, 2, "Optional catalog lookup", "Review local results before any online lookup or upload.")
     comparison_command = [
         sys.executable,
         str(CLIENT_DIR / "compare_and_submit.py"),
@@ -105,20 +103,23 @@ def run_workflow(
         *COMPONENTS,
         "--upload",
     ]
+    if no_color:
+        comparison_command.append("--no-color")
+    if verbose:
+        comparison_command.append("--verbose")
     comparison_status = _run(
         comparison_command,
         "Finding closest passing specifications and preparing backend submission",
     )
     if comparison_status != 0:
-        print(
-            "\n[NOTICE] The local assessment is retained. Review the error above; "
-            "catalog lookup or report submission did not complete.",
+        output.print(
+            "[yellow]Local assessment retained.[/yellow] Catalog lookup or upload did not complete.",
             file=sys.stderr,
         )
         return comparison_status
 
-    print(f"\n  Local JSON/text reports: {REPORT_DIR}")
-    print("  Completed. Any backend upload was made only after your consent.")
+    output.print(f"\n[green]Done.[/green] Local reports: {output_dir.resolve()}")
+    output.print("[dim]Any upload was made only after explicit consent.[/dim]")
     return 0
 
 

@@ -13,7 +13,10 @@ def _gpu_readings(notes: list[str]) -> list[dict[str, Any]]:
     try:
         import pynvml
     except ImportError:
-        notes.append("NVIDIA sample unavailable: install optional pynvml package.")
+        notes.append(
+            "NVIDIA sample unavailable: install optional pynvml package; "
+            "this does not provide readings for non-NVIDIA GPUs."
+        )
         return []
 
     initialized = False

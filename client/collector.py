@@ -17,6 +17,7 @@ from hardware_inventory import collect_inventory
 from passive_sample import collect_passive_sample
 from questionnaire import run_questionnaire
 from report_repository import write_report
+from ui import concise_report, console, header, result_table
 
 SCHEMA_VERSION = 1
 CLIENT_VERSION = "0.2.0"
@@ -242,7 +243,7 @@ def _render(report: dict[str, Any]) -> str:
 
 
 def _write_reports(report: dict[str, Any], output_dir: Path) -> tuple[Path, Path]:
-    return write_report(report, output_dir, _render)
+    return write_report(report, output_dir, concise_report)
 
 
 def _ask_upload() -> bool:
@@ -279,6 +280,9 @@ def main() -> int:
         default=0,
         help="Optionally observe current CPU/RAM/disk/GPU activity for 1-30 seconds; 0 disables it.",
     )
+    parser.add_argument("--no-color", action="store_true", help="Disable styled terminal output.")
+    parser.add_argument("--no-header", action="store_true", help="Hide the standalone header when embedded in another workflow.")
+    parser.add_argument("--verbose", action="store_true", help="Show technical collection details.")
     args = parser.parse_args()
 
     if not 0 <= args.sample_seconds <= 30:
@@ -286,16 +290,20 @@ def main() -> int:
     if args.upload and not args.api_url:
         parser.error("--upload requires --api-url or SYSGAP_REPORT_API_URL.")
 
-    questionnaire = run_questionnaire()
-    print("\nCollecting a one-time hardware inventory...")
+    output = console(no_color=args.no_color)
+    if not args.no_header:
+        header(output)
+    output.print("[bold]Local assessment[/bold]  No network activity yet.")
+    questionnaire = run_questionnaire(verbose=args.verbose)
+    output.print("\n[cyan]Collecting hardware information...[/cyan]")
     hardware, notes = collect_inventory()
     ambient_sample = None
     if args.sample_seconds:
-        print(f"Sampling current ambient activity for up to {args.sample_seconds} seconds...")
+        output.print(f"[cyan]Observing ambient activity for up to {args.sample_seconds} seconds...[/cyan]")
         try:
             ambient_sample = collect_passive_sample(args.sample_seconds)
         except (ValueError, OSError) as error:
-            print(f"Passive sample failed: {error}", file=sys.stderr)
+            output.print(f"[red]Passive sample failed:[/red] {error}", file=sys.stderr)
             return 4
     assessment = evaluate_assessment(questionnaire, hardware, notes)
     if ambient_sample is not None:
@@ -316,14 +324,14 @@ def main() -> int:
     try:
         json_path, text_path = _write_reports(report, args.output_dir)
     except OSError as error:
-        print(f"Could not write local report: {error}", file=sys.stderr)
+        output.print(f"[red]Could not write local report:[/red] {error}", file=sys.stderr)
         return 1
 
-    print("\nAssessment complete.")
-    print(f"JSON report: {json_path.resolve()}")
-    print(f"Readable report: {text_path.resolve()}")
-    print(f"Overall status: {assessment['overall_status']}")
-    print("No benchmark or stress test was run.")
+    output.print("\n[bold green]Assessment complete[/bold green]")
+    result_table(output, report)
+    output.print(f"\n[dim]JSON:[/dim] {json_path.resolve()}")
+    output.print(f"[dim]Summary:[/dim] {text_path.resolve()}")
+    output.print("[dim]No benchmark or stress test was run.[/dim]")
 
     if args.upload:
         if _ask_upload():

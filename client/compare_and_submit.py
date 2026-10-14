@@ -20,6 +20,7 @@ from catalog_client import (
 from candidate_engine import CATALOG_DIRS, select_candidates
 from collector import _render
 from report_repository import write_report
+from ui import console
 
 
 def _read_json(path: Path) -> tuple[dict[str, Any], bytes]:
@@ -122,7 +123,10 @@ def main() -> int:
     )
     parser.add_argument("--limit", type=int, default=2, help="Maximum upgrade options per component (1-2).")
     parser.add_argument("--upload", action="store_true", help="Ask consent and upload after saving the merged report.")
+    parser.add_argument("--no-color", action="store_true", help="Disable styled terminal output.")
+    parser.add_argument("--verbose", action="store_true", help="Show detailed catalog lookup output.")
     args = parser.parse_args()
+    output = console(no_color=args.no_color)
 
     try:
         if not 1 <= args.limit <= 2:
@@ -142,9 +146,7 @@ def main() -> int:
         else:
             recommendation_files = []
             for component in selected_components:
-                print(
-                    f"Checking {component.upper()} score and requirement gap..."
-                )
+                output.print(f"[cyan]Checking {component.upper()}...[/cyan]")
                 if args.catalog_root:
                     result = select_candidates(
                         report, args.catalog_root, component, args.limit
@@ -214,39 +216,39 @@ def main() -> int:
             _render,
             stem=output_json.stem,
         )
-        output_text.write_text(_render(report), encoding="utf-8")
     except OSError as error:
-        print(f"Could not write merged report: {error}", file=sys.stderr)
+        output.print(f"[red]Could not write merged report:[/red] {error}", file=sys.stderr)
         return 1
 
-    print(f"Combined JSON report: {output_json.resolve()}")
-    print(f"Combined readable report: {output_text.resolve()}")
-    print("\nTop component gaps selected for backend:")
+    output.print(f"[dim]JSON:[/dim] {output_json.resolve()}")
+    output.print(f"[dim]Summary:[/dim] {output_text.resolve()}")
+    output.print("\n[bold]Catalog lookup[/bold]")
     if selected_component_gaps:
         for item in selected_component_gaps:
-            print(
-                f"  {item['component'].upper()}: score "
+            output.print(
+                f"  [green]{item['component'].upper()}[/green]: score "
                 f"{item['profile_fit_score']:.1f}/100; "
-                f"{item['profile_floor_gap']:.1f}-point gap; "
+                f"gap {item['profile_floor_gap']:.1f}; "
                 f"{item['candidate_count']} candidate(s)"
             )
     else:
-        print("  None: no known below-floor component had passing catalog candidates.")
-    print("\nAll per-component catalog lookups (retained in the local report):")
-    for item in report["recommendations"]:
-        print(
+        output.print("  No shortlist selected.")
+    if args.verbose:
+        output.print("\n[dim]All selected catalog lookups:[/dim]")
+        for item in report["recommendations"]:
+            output.print(
             f"{item['component']}: {item['status']} "
             f"({len(item['candidates'])} candidates)"
-        )
+            )
 
     if args.upload:
-        print(
+        output.print(
             "Warning: the currently deployed report endpoint runs a legacy gaming "
             "utilization rule. Inventory-only reports contain no workload utilization, "
             "so its stored diagnosis may be misleading; no utilization values will be invented."
         )
         if not _consent():
-            print("Upload cancelled; local reports were retained.")
+            output.print("Upload cancelled; local reports were retained.")
             return 0
         try:
             report_endpoint = f"{args.api_url.rstrip('/')}/api/v1/reports"
@@ -255,12 +257,12 @@ def main() -> int:
             backend_report.pop("catalog_lookup_results", None)
             response = upload_report(report_endpoint, backend_report)
         except (RuntimeError, ValueError) as error:
-            print(f"Report upload failed: {error}", file=sys.stderr)
+            output.print(f"[red]Report upload failed:[/red] {error}", file=sys.stderr)
             return 2
-        print("Combined report uploaded successfully to the SysGap backend.")
+        output.print("[green]Combined report uploaded successfully.[/green]")
         report_url = response.get("report_url")
         if isinstance(report_url, str):
-            print(f"Report URL: {report_url}")
+            output.print(f"Report URL: {report_url}")
     return 0
 
 

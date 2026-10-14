@@ -148,6 +148,11 @@ python cli.py run
 The client collects hardware inventory and creates a local report. Upload is
 disabled unless explicitly requested.
 
+Use `python cli.py run --no-color` for plain log-friendly output or
+`python cli.py run --verbose` for additional collection details. The terminal
+stays concise; the JSON report retains the complete technical result and the
+text report contains a shorter readable summary.
+
 Client uploads enforce HTTPS (except loopback development), block redirects,
 bound request and response sizes, and exclude local-only catalog lookup data.
 
