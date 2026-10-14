@@ -146,6 +146,9 @@ def resolve_requirements(questionnaire: dict[str, Any]) -> tuple[dict[str, Any],
         if value is not None:
             effective[key] = value
             sources[key] = "user_supplied"
+        elif questionnaire.get("preset_requirements", {}).get(key) is not None:
+            effective[key] = questionnaire["preset_requirements"][key]
+            sources[key] = "workload_preset"
         elif profile is not None and profile["requirements"].get(key) is not None:
             effective[key] = profile["requirements"][key]
             sources[key] = "purpose_profile"

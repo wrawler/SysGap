@@ -63,6 +63,8 @@ def _nonnegative(value: Any) -> float | None:
 
 
 def _requirement_label(source: str) -> str:
+    if source == "workload_preset":
+        return "selected workload preset"
     return "selected purpose-profile floor" if source == "purpose_profile" else "user-supplied minimum"
 
 

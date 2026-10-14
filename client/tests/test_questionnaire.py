@@ -8,7 +8,6 @@ class QuestionnaireTests(unittest.TestCase):
         answers = iter([
             "5",  # General use
             "1",  # No current problem
-            "",   # Activity
             "",   # Minimum RAM
             "",   # Minimum VRAM
             "6",  # Minimum CPU cores
@@ -30,31 +29,42 @@ class QuestionnaireTests(unittest.TestCase):
 
     def test_rejects_fractional_cpu_core_count(self):
         answers = iter([
-            "5", "1", "", "", "", "6.5", "6", "3.2", "", "", "",
+            "5", "1", "", "", "6.5", "6", "3.2", "", "", "",
         ])
         result = run_questionnaire(lambda _prompt: next(answers))
         self.assertEqual(result["user_supplied_requirements"]["min_cpu_cores"], 6)
 
     def test_gaming_profile_fills_blank_floors_and_user_answers_override_it(self):
         answers = iter([
-            "1", "1", "", "", "", "", "32", "", "", "", "", "", "",
+            "1", "1", "1", "32", "", "", "", "", "", "",
         ])
         result = run_questionnaire(lambda _prompt: next(answers))
         self.assertEqual(result["effective_requirements"]["min_ram_gib"], 32)
         self.assertEqual(result["requirement_sources"]["min_ram_gib"], "user_supplied")
-        self.assertEqual(result["effective_requirements"]["min_vram_gib"], 8)
+        self.assertEqual(result["effective_requirements"]["min_vram_gib"], 6)
         self.assertEqual(result["effective_requirements"]["min_cpu_cores"], 6)
         self.assertEqual(result["effective_requirements"]["min_free_storage_gib"], 100)
         self.assertEqual(result["effective_requirements"]["min_cpu_base_clock_ghz"], None)
+        self.assertEqual(result["preset_id"], "gaming_1080p_competitive")
+        self.assertEqual(result["context"]["resolution"], "1080p")
 
     def test_rendering_is_a_separate_purpose_profile(self):
-        answers = iter(["3", "1", "", "", "", "", "", "", "", "", "", "", ""])
+        answers = iter(["3", "1", "1", "", "", "", "", "", "", ""])
         result = run_questionnaire(lambda _prompt: next(answers))
         self.assertEqual(result["purpose"], "rendering")
         self.assertEqual(result["effective_requirements"]["min_ram_gib"], 32)
 
+    def test_local_ai_preset_captures_context_and_inference_mode(self):
+        answers = iter(["4", "5", "2", "3", "1", "", "", "", "", "", "", ""])
+        result = run_questionnaire(lambda _prompt: next(answers))
+        self.assertEqual(result["preset_id"], "ai_13b_q4")
+        self.assertEqual(result["context"]["context_length_tokens"], 16384)
+        self.assertEqual(result["context"]["inference_mode"], "gpu")
+        self.assertEqual(result["effective_requirements"]["min_ram_gib"], 40)
+        self.assertEqual(result["effective_requirements"]["min_vram_gib"], 16)
+
     def test_upgrade_planning_does_not_apply_an_unrelated_profile(self):
-        answers = iter(["6", "1", "", "", "", "", "", "", "", "", ""])
+        answers = iter(["6", "1", "", "", "", "", "", "", ""])
         result = run_questionnaire(lambda _prompt: next(answers))
         self.assertEqual(result["effective_requirements"]["min_ram_gib"], None)
         self.assertEqual(result["requirement_sources"]["min_ram_gib"], "not_set")

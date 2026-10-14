@@ -6,6 +6,7 @@ import math
 from typing import Any, Callable
 
 from profiles import PROFILES, resolve_requirements
+from presets import available_presets, get_preset, PRESET_DATA_VERSION
 
 PURPOSES = {
     "gaming": "Gaming",
@@ -84,40 +85,74 @@ def run_questionnaire(
 ) -> dict[str, Any]:
     purpose = _choose("What do you mainly want to use this PC for?", PURPOSES, input_fn)
     symptom = _choose("Which best describes your current situation?", SYMPTOMS, input_fn)
-    activity = _optional_text(
-        "Name the application, game, AI model, or workload if known (optional): ",
-        input_fn,
-    )
 
     context: dict[str, Any] = {}
-    if purpose == "gaming":
-        context["resolution"] = _optional_text(
-            "Typical resolution (e.g. 1920x1080; optional): ", input_fn
-        )
-        context["target_fps"] = _optional_positive_number(
-            "Desired frame rate in FPS, if relevant (optional): ", input_fn
-        )
-    elif purpose == "video_editing":
-        context["footage_resolution"] = _optional_text(
-            "Typical footage resolution (e.g. 4K; optional): ", input_fn
-        )
-        context["project_description"] = _optional_text(
-            "Project/effect complexity (optional): ", input_fn
-        )
-    elif purpose == "rendering":
-        context["renderer"] = _optional_text(
-            "Renderer or application (optional): ", input_fn
-        )
-        context["render_mode"] = _optional_text(
-            "CPU, GPU, or mixed rendering mode (optional): ", input_fn
-        )
-    elif purpose == "local_ai":
-        context["model_or_workload"] = _optional_text(
-            "Model or workload (optional): ", input_fn
-        )
+    preset = None
     if purpose in {"gaming", "video_editing", "local_ai"}:
-        context["gpu_used_by_workload"] = _optional_text(
-            "GPU used by this workload, if known (optional): ", input_fn
+        options = {
+            item["id"]: item["label"] for item in available_presets(purpose)
+        }
+        preset_id = _choose(
+            {
+                "gaming": "Choose the gaming target:",
+                "video_editing": "Choose the editing workload:",
+                "local_ai": "Choose the local AI model size:",
+            }[purpose],
+            options,
+            input_fn,
+        )
+        preset = get_preset(purpose, preset_id)
+        context["preset_id"] = preset["id"]
+        context["preset_label"] = preset["label"]
+        context["preset_description"] = preset["description"]
+        if purpose == "local_ai":
+            context["parameters_billion"] = preset["parameters_billion"]
+            context["quantization"] = preset["quantization"]
+            context["context_length_tokens"] = int(
+                _choose(
+                    "Choose the usual context length:",
+                    {
+                        "4096": "4k tokens",
+                        "8192": "8k tokens",
+                        "16384": "16k tokens",
+                    },
+                    input_fn,
+                )
+            )
+            context["inference_mode"] = _choose(
+                "Where should the model mainly run?",
+                {
+                    "gpu": "GPU-focused",
+                    "hybrid": "Hybrid CPU/GPU",
+                    "cpu": "CPU-only",
+                },
+                input_fn,
+            )
+            context_requirements = dict(preset["requirements"])
+            if context["context_length_tokens"] >= 8192:
+                context_requirements["min_ram_gib"] += 4
+            if context["context_length_tokens"] >= 16384:
+                context_requirements["min_ram_gib"] += 4
+            if context["inference_mode"] == "cpu":
+                context_requirements["min_vram_gib"] = 0
+            elif context["context_length_tokens"] >= 8192:
+                context_requirements["min_vram_gib"] += 2
+            if context["context_length_tokens"] >= 16384 and context["inference_mode"] != "cpu":
+                context_requirements["min_vram_gib"] += 2
+            preset = {**preset, "requirements": context_requirements}
+        if purpose == "gaming":
+            context["resolution"] = preset["label"].split("·", 1)[0].strip()
+        if purpose == "video_editing":
+            context["footage_resolution"] = preset["label"].split("·", 1)[0].strip()
+    elif purpose == "rendering":
+        context["render_mode"] = _choose(
+            "What kind of rendering workload is closest?",
+            {
+                "cpu": "CPU rendering",
+                "gpu": "GPU rendering",
+                "mixed": "Mixed CPU/GPU rendering",
+            },
+            input_fn,
         )
 
     profile = PROFILES.get(purpose)
@@ -139,8 +174,8 @@ def run_questionnaire(
 
     print(
         "\nIf you have the application's official system requirements, enter the "
-        "minimum values here. Your entries override the selected purpose profile. "
-        "Blank entries use its labeled planning baseline when available; "
+        "minimum values here. Your entries override the selected preset or purpose profile. "
+        "Blank entries use the selected workload preset first, then its labeled planning baseline; "
         "upgrade_planning/other have no default profile."
     )
     requirements = {
@@ -171,8 +206,12 @@ def run_questionnaire(
         "purpose_label": PURPOSES[purpose],
         "symptom": symptom,
         "symptom_label": SYMPTOMS[symptom],
-        "activity": activity,
+        "activity": None,
         "context": context,
+        "preset_id": preset["id"] if preset else None,
+        "preset_data_version": PRESET_DATA_VERSION if preset else None,
+        "preset_requirements": preset["requirements"] if preset else {},
+        "preset_assumptions": preset["assumptions"] if preset else [],
         "user_supplied_requirements": requirements,
         "answers_are_self_reported": True,
     }
