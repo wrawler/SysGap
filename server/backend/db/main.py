@@ -1,7 +1,9 @@
 # server/backend/main.py
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uuid
+import os
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +12,19 @@ from db.storage import create_report_store, utc_now
 from db.catalog import CatalogQuery, CatalogService, normalize_component
 
 app = FastAPI(title="PriceRig API", version="1.0.0")
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("PRICERIG_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+if allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG_PATH = ROOT / "catalog" / "catalog.json"
 CATALOG = CatalogService(CATALOG_PATH)

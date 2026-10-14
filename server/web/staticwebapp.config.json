@@ -1,0 +1,18 @@
+{
+  "routes": [
+    {
+      "route": "/catalog",
+      "rewrite": "/catalog/index.html"
+    }
+  ],
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/catalog/*",
+      "/api/*",
+      "/*.css",
+      "/*.js",
+      "/downloads/*"
+    ]
+  }
+}

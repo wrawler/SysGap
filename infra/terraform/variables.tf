@@ -38,3 +38,25 @@ variable "container_registry_password" {
   type      = string
   sensitive = true
 }
+
+variable "frontend_location" {
+  type        = string
+  default     = "eastasia"
+  description = "Azure Static Web App region permitted by the subscription policy."
+}
+
+variable "frontend_custom_domain" {
+  type        = string
+  default     = ""
+  description = "Optional custom hostname, such as app.example.com."
+}
+
+variable "frontend_api_url" {
+  type        = string
+  description = "Public API origin used by the static frontend."
+}
+
+variable "allowed_frontend_origins" {
+  type        = string
+  description = "Comma-separated origins allowed by the API CORS policy."
+}

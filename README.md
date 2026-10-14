@@ -93,6 +93,73 @@ client cannot accidentally filter on an incompatible property. The server
 keeps the complete generated records internally but supports `fields` to
 reduce response size and bandwidth.
 
+## Static web experience
+
+The Nginx entry point serves a dependency-free landing page and catalog from
+`server/web`. Open `http://localhost:8080/` for the overview and
+`http://localhost:8080/catalog` to browse component records. The catalog loads
+one page at a time from the API and supports CPU, GPU, memory, motherboard, and
+storage tabs. The theme toggle persists a light/dark preference in the
+browser.
+
+The landing page download is the checked-in
+`server/web/downloads/pricerig-client.zip` archive. Regenerate it after
+changing the client files with:
+
+```bash
+rm server/web/downloads/pricerig-client.zip
+zip -qr server/web/downloads/pricerig-client.zip client \
+  -x 'client/.venv/*' 'client/__pycache__/*' 'client/tests/__pycache__/*' \
+  'client/.pytest_cache/*'
+```
+
+### Cloud hosting and custom domains
+
+The recommended production shape is an Azure Static Web App on the Free tier
+for `server/web`, alongside the existing scale-to-zero Container App for the
+API. Static Web Apps provides edge delivery for the small HTML/CSS/JS bundle
+without adding an always-on web container. The frontend's API origin is
+injected during deployment through `FRONTEND_API_URL`, and the API only allows
+the origins listed in `ALLOWED_FRONTEND_ORIGINS`.
+
+Azure subscriptions can restrict which regions may host Static Web Apps. The
+Terraform default is `eastasia`, matching the example deployment region, but
+set `frontend_location` explicitly to another region approved for your
+subscription if Azure returns `RequestDisallowedByAzure`:
+
+```hcl
+frontend_location = "eastasia"
+```
+
+You can inspect the regions exposed to your subscription with:
+
+```bash
+az account list-locations \
+  --query "[?metadata.regionType == 'Physical'].name" \
+  --output tsv
+```
+
+The policy may still allow only a subset of those regions. The Azure Portal's
+Static Web App creation form shows the subscription's currently permitted
+regions; use one of those values for `frontend_location`.
+
+The deployment workflow expects these GitHub Actions secrets:
+
+- `AZURE_STATIC_WEB_APPS_API_TOKEN` — deployment token for the provisioned
+  Static Web App.
+- `FRONTEND_API_URL` — the API's public HTTPS origin.
+- `ALLOWED_FRONTEND_ORIGINS` — comma-separated frontend origins, including the
+  default `azurestaticapps.net` hostname and the final custom hostname.
+- `FRONTEND_CUSTOM_DOMAIN` — optional hostname such as `app.example.com`;
+  leave it empty until the showcase domain is ready.
+
+Set `frontend_custom_domain` in Terraform when the domain is available. Azure
+will provide a DNS TXT validation value; add that record at the DNS provider,
+wait for propagation, and apply Terraform again. Azure provisions and renews
+the managed TLS certificate. For an apex domain, use the Static Web App's
+recommended ALIAS/ANAME or A-record values; a subdomain such as `app` is
+usually simpler and can use the provided CNAME.
+
 For local development, omit Azure storage variables. To use Azure directly,
 set `AZURE_STORAGE_ACCOUNT_URL` with managed-identity credentials, or set
 `AZURE_TABLE_ACCOUNT_URL` as well. A connection string can be used for a

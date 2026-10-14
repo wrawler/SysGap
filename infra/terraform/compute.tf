@@ -87,6 +87,10 @@ resource "azurerm_container_app" "api" {
         name  = "AZURE_TABLE_NAME"
         value = azurerm_storage_table.reports.name
       }
+      env {
+        name  = "PRICERIG_ALLOWED_ORIGINS"
+        value = var.allowed_frontend_origins
+      }
     }
 
     http_scale_rule {
@@ -94,4 +98,19 @@ resource "azurerm_container_app" "api" {
       concurrent_requests = "20"
     }
   }
+}
+
+resource "azurerm_static_web_app" "frontend" {
+  name                = "${var.project_name}-web"
+  resource_group_name = azurerm_resource_group.app.name
+  location            = var.frontend_location
+  sku_tier            = "Free"
+  sku_size            = "Free"
+}
+
+resource "azurerm_static_web_app_custom_domain" "frontend" {
+  count             = var.frontend_custom_domain == "" ? 0 : 1
+  static_web_app_id = azurerm_static_web_app.frontend.id
+  domain_name       = var.frontend_custom_domain
+  validation_type   = "dns-txt-token"
 }
