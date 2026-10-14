@@ -13,7 +13,7 @@ MAX_BODY_BYTES = 2 * 1024 * 1024
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "PriceRigLocalMock/1.0"
+    server_version = "SysGapLocalMock/1.0"
 
     def _send_json(self, status: int, value: dict[str, Any]) -> None:
         body = json.dumps(value).encode("utf-8")
@@ -90,7 +90,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the localhost-only PriceRig mock report API.")
+    parser = argparse.ArgumentParser(description="Run the localhost-only SysGap mock report API.")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:

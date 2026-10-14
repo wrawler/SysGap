@@ -1,11 +1,11 @@
 (function () {
   const root = document.documentElement;
-  const savedTheme = localStorage.getItem("pricerig-theme");
+  const savedTheme = localStorage.getItem("sysgap-theme");
   const preferredTheme = savedTheme || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 
   function setTheme(theme) {
     root.dataset.theme = theme;
-    localStorage.setItem("pricerig-theme", theme);
+    localStorage.setItem("sysgap-theme", theme);
     document.querySelectorAll("[data-theme-label]").forEach((label) => { label.textContent = theme === "dark" ? "Light mode" : "Dark mode"; });
     document.querySelectorAll("[data-theme-icon]").forEach((icon) => { icon.textContent = theme === "dark" ? "☀" : "☾"; });
     document.querySelectorAll("[data-theme-toggle]").forEach((button) => { button.setAttribute("aria-label", `Switch to ${theme === "dark" ? "light" : "dark"} mode`); });
@@ -20,7 +20,7 @@
     { key: "Motherboard", label: "Motherboard" }, { key: "Storage", label: "Storage" },
   ];
   const state = { component: "CPU", page: 1, limit: 12, total: 0 };
-  const apiBase = (window.PRICE_RIG_API_BASE || "").replace(/\/$/, "");
+  const apiBase = (window.SYSGAP_API_BASE || "").replace(/\/$/, "");
   const tabs = document.querySelector("[data-tabs]");
   const grid = document.querySelector("[data-card-grid]");
   const message = document.querySelector("[data-catalog-message]");

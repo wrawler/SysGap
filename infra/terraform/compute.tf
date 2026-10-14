@@ -88,7 +88,7 @@ resource "azurerm_container_app" "api" {
         value = azurerm_storage_table.reports.name
       }
       env {
-        name  = "PRICERIG_ALLOWED_ORIGINS"
+        name  = "SYSGAP_ALLOWED_ORIGINS"
         value = var.allowed_frontend_origins
       }
     }

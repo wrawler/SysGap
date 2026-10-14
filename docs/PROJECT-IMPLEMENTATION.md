@@ -1,6 +1,6 @@
-# PriceRig Project Implementation Record
+# SysGap Project Implementation Record
 
-This document records the work completed to turn PriceRig into a publicly
+This document records the work completed to turn SysGap into a publicly
 accessible diagnostic landing site with a browsable hardware catalog, Azure
 hosting, and the custom domain `sysgap.wrawler.online`.
 
@@ -34,7 +34,7 @@ The following must never be copied into this document or committed:
 
 ## 1. Starting point
 
-PriceRig already contained:
+SysGap already contained:
 
 - A FastAPI backend under `server/backend`.
 - A generated hardware catalog under `server/backend/catalog`.
@@ -77,7 +77,7 @@ The landing page was added at:
 
 It includes:
 
-- PriceRig product explanation.
+- SysGap product explanation.
 - Primary client download call-to-action.
 - Link to the hardware catalog.
 - A three-part explanation of the product workflow.
@@ -123,7 +123,7 @@ It handles:
 
 The landing page download button points to:
 
-- `server/web/downloads/pricerig-client.zip`
+- `server/web/downloads/sysgap-client.zip`
 
 The archive contains the client application and excludes local environments,
 Python caches, and test caches.
@@ -131,8 +131,8 @@ Python caches, and test caches.
 It can be regenerated with:
 
 ```bash
-rm server/web/downloads/pricerig-client.zip
-zip -qr server/web/downloads/pricerig-client.zip client \
+rm server/web/downloads/sysgap-client.zip
+zip -qr server/web/downloads/sysgap-client.zip client \
   -x 'client/.venv/*' \
      'client/__pycache__/*' \
      'client/tests/__pycache__/*' \
@@ -239,13 +239,13 @@ A small runtime configuration file was added:
 It contains:
 
 ```javascript
-window.PRICE_RIG_API_BASE = "https://your-api-host";
+window.SYSGAP_API_BASE = "https://your-api-host";
 ```
 
 Local development can use an empty value to keep same-origin behavior:
 
 ```javascript
-window.PRICE_RIG_API_BASE = "";
+window.SYSGAP_API_BASE = "";
 ```
 
 Production deployments replace the value with the public Container App API
@@ -254,7 +254,7 @@ origin.
 The catalog request is formed as:
 
 ```text
-{PRICE_RIG_API_BASE}/api/v1/catalog/{component}
+{SYSGAP_API_BASE}/api/v1/catalog/{component}
 ```
 
 ## 7. Nginx and Docker Compose integration
@@ -295,7 +295,7 @@ The FastAPI application was updated in:
 It reads:
 
 ```text
-PRICERIG_ALLOWED_ORIGINS
+SYSGAP_ALLOWED_ORIGINS
 ```
 
 The value is a comma-separated list of exact browser origins. Example:
@@ -523,7 +523,7 @@ az containerapp update \
   --name sysgap-api \
   --resource-group sysgap-rg \
   --set-env-vars \
-  'PRICERIG_ALLOWED_ORIGINS=https://orange-sea-02f787400.5.azurestaticapps.net,https://sysgap.wrawler.online'
+  'SYSGAP_ALLOWED_ORIGINS=https://orange-sea-02f787400.5.azurestaticapps.net,https://sysgap.wrawler.online'
 ```
 
 ### Catalog title quality

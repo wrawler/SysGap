@@ -1,4 +1,4 @@
-# PriceRig client-side assessment
+# SysGap client-side assessment
 
 The client asks about the intended workload, gathers a one-time Windows
 hardware inventory, compares detectable capacity with user-supplied

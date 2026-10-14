@@ -28,7 +28,7 @@ def _render(report: dict[str, Any]) -> str:
     memory = hardware.get("memory") or {}
     storage = hardware.get("storage") or {}
     lines = [
-        "PRICERIG HARDWARE SUITABILITY ASSESSMENT",
+        "SYSGAP HARDWARE SUITABILITY ASSESSMENT",
         "=" * 42,
         f"Generated (UTC): {report['generated_at_utc']}",
         f"Purpose: {report['questionnaire']['purpose_label']}",
@@ -270,8 +270,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--api-url",
-        default=os.environ.get("PRICERIG_REPORT_API_URL"),
-        help="Full HTTPS report endpoint; alternatively set PRICERIG_REPORT_API_URL.",
+        default=os.environ.get("SYSGAP_REPORT_API_URL"),
+        help="Full HTTPS report endpoint; alternatively set SYSGAP_REPORT_API_URL.",
     )
     parser.add_argument(
         "--upload",
@@ -289,7 +289,7 @@ def main() -> int:
     if not 0 <= args.sample_seconds <= 30:
         parser.error("--sample-seconds must be 0 (disabled) or between 1 and 30.")
     if args.upload and not args.api_url:
-        parser.error("--upload requires --api-url or PRICERIG_REPORT_API_URL.")
+        parser.error("--upload requires --api-url or SYSGAP_REPORT_API_URL.")
 
     questionnaire = run_questionnaire()
     print("\nCollecting a one-time hardware inventory...")

@@ -25,11 +25,11 @@ jobs:
         with:
           context: server/backend
           push: true
-          tags: ${{ secrets.ACR_LOGIN_SERVER }}/pricerig-api:${{ github.sha }}
+          tags: ${{ secrets.ACR_LOGIN_SERVER }}/sysgap-api:${{ github.sha }}
       - uses: hashicorp/setup-terraform@v3
       - working-directory: infra/terraform
         env:
-          TF_VAR_container_image: ${{ secrets.ACR_LOGIN_SERVER }}/pricerig-api:${{ github.sha }}
+          TF_VAR_container_image: ${{ secrets.ACR_LOGIN_SERVER }}/sysgap-api:${{ github.sha }}
           TF_VAR_container_registry_server: ${{ secrets.ACR_LOGIN_SERVER }}
           TF_VAR_container_registry_username: ${{ secrets.ACR_USERNAME }}
           TF_VAR_container_registry_password: ${{ secrets.ACR_PASSWORD }}
@@ -43,7 +43,7 @@ jobs:
         env:
           FRONTEND_API_URL: ${{ secrets.FRONTEND_API_URL }}
         run: |
-          printf 'window.PRICE_RIG_API_BASE = "%s";\n' "$FRONTEND_API_URL" > server/web/config.js
+          printf 'window.SYSGAP_API_BASE = "%s";\n' "$FRONTEND_API_URL" > server/web/config.js
       - uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}

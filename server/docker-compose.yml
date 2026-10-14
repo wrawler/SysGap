@@ -7,7 +7,7 @@ services:
     environment:
       AZURE_BLOB_CONTAINER: reports
       AZURE_TABLE_NAME: Reports
-      PRICERIG_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080,http://127.0.0.1:4173
+      SYSGAP_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080,http://127.0.0.1:4173
     volumes:
       - report-data:/app/runtime/reports
 

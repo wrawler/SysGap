@@ -6,7 +6,7 @@ variable "location" {
 
 variable "project_name" {
   type    = string
-  default = "pricerig"
+  default = "sysgap"
 }
 
 variable "container_image" {
@@ -26,7 +26,7 @@ variable "container_memory" {
 
 variable "container_registry_server" {
   type        = string
-  description = "Container registry server, for example pricerig.azurecr.io."
+  description = "Container registry server, for example sysgap.azurecr.io."
 }
 
 variable "container_registry_username" {

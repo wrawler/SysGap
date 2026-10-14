@@ -11,10 +11,10 @@ from shared.rules_engine import evaluate_gaming_telemetry
 from db.storage import create_report_store, utc_now
 from db.catalog import CatalogQuery, CatalogService, normalize_component
 
-app = FastAPI(title="PriceRig API", version="1.0.0")
+app = FastAPI(title="SysGap API", version="1.0.0")
 allowed_origins = [
     origin.strip()
-    for origin in os.getenv("PRICERIG_ALLOWED_ORIGINS", "").split(",")
+    for origin in os.getenv("SYSGAP_ALLOWED_ORIGINS", "").split(",")
     if origin.strip()
 ]
 if allowed_origins:

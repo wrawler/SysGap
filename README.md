@@ -1,33 +1,155 @@
 <div align="center">
-  <img src="assets/logo.png" alt="SysGap Logo" width="300"/>
+  <img src="assets/logo.png" alt="SysGap logo" width="300">
 </div>
 
----
+<p align="center">
+  Hardware diagnostics and upgrade guidance based on observable system facts.
+</p>
 
-SysGap is a telemetry-driven PC diagnostic engine. The client sends a small
-hardware/telemetry payload, the API evaluates it, and the catalog API returns
-compatible upgrade candidates.
+<p align="center">
+  <a href="https://sysgap.wrawler.online">Live site</a>
+  ·
+  <a href="https://sysgap.wrawler.online/catalog">Parts catalog</a>
+  ·
+  <a href="client/README.md">Client documentation</a>
+</p>
 
-## Runtime architecture
+## Overview
 
-- **API:** FastAPI/Uvicorn in an Azure Container App with scale-to-zero enabled.
-- **Catalog:** A generated, read-only JSON artifact containing up to 200
-  specification-unique records for each of CPU, GPU, RAM, motherboard, and
-  storage.
-- **Reports:** JSON payloads in private Azure Blob Storage, with Azure Table
-  Storage metadata for inexpensive lookup.
-- **Local development:** Docker Compose, with reports stored in a named volume.
-- **Edge/client data:** The API accepts telemetry; it does not require the
-  client to upload the full source catalog.
+SysGap is a telemetry-driven PC diagnostic engine. A lightweight Windows
+client collects a one-time hardware inventory, the API evaluates the supplied
+report, and the catalog API returns relevant component records and upgrade
+candidates.
 
-Azure free grants and quotas change over time. The Terraform configuration uses
-small scale-to-zero resources and LRS storage, but usage and log retention
-should still be monitored.
+SysGap intentionally avoids claims it cannot support. It does not run
+benchmarks or stress tests, invent telemetry, or treat a capacity match as
+proof of application performance. Unknown and unassessed values remain
+explicitly unknown.
 
-## Build the catalog
+## What is included
+
+- A Windows hardware inventory and assessment client.
+- A FastAPI backend for reports, catalog queries, and candidate selection.
+- A generated catalog for CPU, GPU, RAM, motherboard, and storage.
+- A responsive static landing page and catalog browser.
+- Light and dark themes with a small dependency-free frontend.
+- A downloadable client archive at
+  `server/web/downloads/sysgap-client.zip`.
+- Azure deployment infrastructure using Terraform.
+- Azure Static Web Apps for the frontend.
+- An Azure Container App with scale-to-zero for the API.
+
+## Production site
+
+- Landing page: <https://sysgap.wrawler.online>
+- Catalog: <https://sysgap.wrawler.online/catalog>
+- Azure fallback hostname:
+  <https://orange-sea-02f787400.5.azurestaticapps.net>
+- API health endpoint:
+  <https://sysgap-api.greenisland-25c48125.eastasia.azurecontainerapps.io/healthz>
+
+The public frontend is served by Azure Static Web Apps. The API runs separately
+in an Azure Container App. The frontend's API origin is configured in
+`server/web/config.js` during deployment.
+
+## Architecture
+
+```text
+Browser
+  |
+  +-- Azure Static Web Apps
+  |     +-- Landing page
+  |     +-- Catalog browser
+  |     +-- Client ZIP download
+  |
+  +-- Azure Container App
+        +-- FastAPI API
+        +-- Scale-to-zero compute
+        +-- Catalog query service
+        +-- Report storage integration
+```
+
+Local development uses Docker Compose:
+
+```text
+Nginx :8080
+  +-- Static frontend
+  +-- /api/ proxy
+        |
+        +-- FastAPI :8000
+```
+
+## Repository layout
+
+```text
+.
+├── assets/                 Branding assets
+├── client/                 Windows inventory and assessment client
+├── docs/                   Project and deployment documentation
+├── infra/terraform/        Azure infrastructure definitions
+├── server/backend/         FastAPI application and catalog artifacts
+├── server/nginx/           Local Nginx configuration
+├── server/web/             Static landing page and catalog
+└── .github/workflows/      CI and deployment workflows
+```
+
+For the complete chronological implementation record, see
+[`docs/PROJECT-IMPLEMENTATION.md`](docs/PROJECT-IMPLEMENTATION.md).
+
+## Run the API and website locally
+
+From the repository root:
+
+```bash
+cd server
+docker compose up --build
+```
+
+Open:
+
+- <http://localhost:8080/> for the landing page.
+- <http://localhost:8080/catalog> for the catalog.
+- <http://localhost:8080/healthz> for the health check.
+- <http://localhost:8000/docs> for the FastAPI documentation.
+
+To use another host port:
+
+```bash
+WEB_PORT=9090 docker compose up --build
+```
+
+The local API is also exposed directly at <http://localhost:8000>.
+
+## Run the Windows client
+
+The client requires Windows and Python 3.10 or newer.
+
+```powershell
+cd client
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python collector.py
+```
+
+The client collects hardware inventory and creates a local report. Upload is
+disabled unless explicitly requested.
+
+To upload to an API:
+
+```powershell
+$env:SYSGAP_REPORT_API_URL = "https://your-api-host/api/v1/reports"
+python collector.py --upload
+```
+
+The client asks for upload consent and requires HTTPS except for localhost
+development. See [`client/README.md`](client/README.md) for the assessment
+methodology, supported options, and limitations.
+
+## Catalog generation
 
 The raw `open-db` directory is intentionally ignored by Git. Generate the
-runtime artifact from a local copy of that dataset:
+runtime catalog from a local copy of that dataset:
 
 ```bash
 cd server/backend
@@ -37,40 +159,38 @@ PYTHONPATH=. python -m db.catalog_pipeline \
   --manifest catalog/manifest.json
 ```
 
-The reducer fingerprints only capability/specification fields. Vendor, product
-name, part number, and retailer identifiers do not create separate entries.
-The retained representative is selected deterministically, preferring useful
-capacity/performance and then a stable source ID. `--target` accepts 150–200
-and defaults to 200.
+The reducer:
 
-## Run locally
+- Fingerprints capability and specification fields.
+- Excludes vendor, product name, part number, and retailer identifiers from
+  deduplication.
+- Selects representatives deterministically.
+- Prefers useful capacity and performance values.
+- Retains between 150 and 200 records per component type.
+- Defaults to 200 records per type.
 
-```bash
-cd server
-docker compose up --build
-```
+The generated artifacts are:
 
-The API is available directly at `http://localhost:8000`; the Nginx entry point
-is `http://localhost:8080`. Check `http://localhost:8080/healthz` before
-sending requests. Override the host-facing web port when needed:
+- `server/backend/catalog/catalog.json`
+- `server/backend/catalog/manifest.json`
 
-```bash
-WEB_PORT=9090 docker compose up --build
-```
+The manifest records source counts, unique specifications, retained records,
+and duplicates for each category.
 
-Endpoints:
+## API endpoints
 
-- `GET /api/v1/catalog` — catalog counts and queryable fields
-- `GET /api/v1/catalog/{component}?limit=25` — simple component listing
-- `POST /api/v1/catalog/query` — filtered/sorted/projection query
-- `GET /api/v1/catalog/candidates?component=gpu&limit=25`
-- `GET /api/v1/catalog/candidates?component=cpu&max_tdp=150`
-- `POST /api/v1/reports`
-- `GET /api/v1/reports/{report_id}`
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/healthz` | Liveness check |
+| `GET` | `/readyz` | Catalog readiness check |
+| `GET` | `/api/v1/catalog` | Catalog counts and queryable fields |
+| `GET` | `/api/v1/catalog/{component}` | Paginated component listing |
+| `POST` | `/api/v1/catalog/query` | Filtered, sorted, projected catalog query |
+| `GET` | `/api/v1/catalog/candidates` | Compatibility-oriented candidates |
+| `POST` | `/api/v1/reports` | Store an assessment report |
+| `GET` | `/api/v1/reports/{report_id}` | Retrieve a report |
 
-The client should use `POST /api/v1/catalog/query` after diagnosis when it
-needs a hardware-specific result set. The server validates component fields
-against the generated catalog schema and applies bounded pagination:
+Example catalog query:
 
 ```json
 {
@@ -88,331 +208,199 @@ against the generated catalog schema and applies bounded pagination:
 ```
 
 Supported filter operators are `eq`, `min`, `max`, and `in`. Queryable fields
-are returned by `GET /api/v1/catalog`; fields are component-specific so a
-client cannot accidentally filter on an incompatible property. The server
-keeps the complete generated records internally but supports `fields` to
-reduce response size and bandwidth.
+are component-specific and are returned by `GET /api/v1/catalog`.
 
-## Static web experience
+## Frontend deployment
 
-The Nginx entry point serves a dependency-free landing page and catalog from
-`server/web`. Open `http://localhost:8080/` for the overview and
-`http://localhost:8080/catalog` to browse component records. The catalog loads
-one page at a time from the API and supports CPU, GPU, memory, motherboard, and
-storage tabs. The theme toggle persists a light/dark preference in the
-browser.
+The frontend is plain HTML, CSS, and JavaScript under `server/web`; no build
+step or frontend framework is required.
 
-The landing page download is the checked-in
-`server/web/downloads/pricerig-client.zip` archive. Regenerate it after
-changing the client files with:
+Regenerate the public client download after changing files under `client/`:
 
 ```bash
-rm server/web/downloads/pricerig-client.zip
-zip -qr server/web/downloads/pricerig-client.zip client \
-  -x 'client/.venv/*' 'client/__pycache__/*' 'client/tests/__pycache__/*' \
-  'client/.pytest_cache/*'
+rm server/web/downloads/sysgap-client.zip
+zip -qr server/web/downloads/sysgap-client.zip client \
+  -x 'client/.venv/*' \
+     'client/__pycache__/*' \
+     'client/tests/__pycache__/*' \
+     'client/.pytest_cache/*'
 ```
 
-### Cloud hosting and custom domains
-
-The recommended production shape is an Azure Static Web App on the Free tier
-for `server/web`, alongside the existing scale-to-zero Container App for the
-API. Static Web Apps provides edge delivery for the small HTML/CSS/JS bundle
-without adding an always-on web container. The frontend's API origin is
-injected during deployment through `FRONTEND_API_URL`, and the API only allows
-the origins listed in `ALLOWED_FRONTEND_ORIGINS`.
-
-Azure subscriptions can restrict which regions may host Static Web Apps. The
-Terraform default is `eastasia`, matching the example deployment region, but
-set `frontend_location` explicitly to another region approved for your
-subscription if Azure returns `RequestDisallowedByAzure`:
-
-```hcl
-frontend_location = "eastasia"
-```
-
-You can inspect the regions exposed to your subscription with:
+Verify the archive:
 
 ```bash
-az account list-locations \
-  --query "[?metadata.regionType == 'Physical'].name" \
-  --output tsv
+unzip -tq server/web/downloads/sysgap-client.zip
 ```
 
-The policy may still allow only a subset of those regions. The Azure Portal's
-Static Web App creation form shows the subscription's currently permitted
-regions; use one of those values for `frontend_location`.
-
-The deployment workflow expects these GitHub Actions secrets:
-
-- `AZURE_STATIC_WEB_APPS_API_TOKEN` — deployment token for the provisioned
-  Static Web App.
-- `FRONTEND_API_URL` — the API's public HTTPS origin.
-- `ALLOWED_FRONTEND_ORIGINS` — comma-separated frontend origins, including the
-  default `azurestaticapps.net` hostname and the final custom hostname.
-- `FRONTEND_CUSTOM_DOMAIN` — optional hostname such as `app.example.com`;
-  leave it empty until the showcase domain is ready.
-
-Set `frontend_custom_domain` in Terraform when the domain is available. Azure
-will provide a DNS TXT validation value; add that record at the DNS provider,
-wait for propagation, and apply Terraform again. Azure provisions and renews
-the managed TLS certificate. For an apex domain, use the Static Web App's
-recommended ALIAS/ANAME or A-record values; a subdomain such as `app` is
-usually simpler and can use the provided CNAME.
-
-For local development, omit Azure storage variables. To use Azure directly,
-set `AZURE_STORAGE_ACCOUNT_URL` with managed-identity credentials, or set
-`AZURE_TABLE_ACCOUNT_URL` as well. A connection string can be used for a
-controlled development environment.
-
-## Deploy to Azure
-
-1. Create an Azure Container Registry and configure GitHub OIDC/Azure login
-   secrets used by `.github/workflows/deploy.yml`.
-2. Copy `infra/terraform/terraform.tfvars.example` to
-   `infra/terraform/terraform.tfvars` and set the image/registry values.
-3. Run:
+Deploy manually to the production Static Web App:
 
 ```bash
-cd infra/terraform
-terraform init
-terraform plan
-terraform apply
+swa deploy ./server/web \
+  --env production \
+  --deployment-token "$(terraform -chdir=infra/terraform output -raw frontend_deployment_token)"
 ```
 
-The `api_url` output is the public Container App URL. The manual GitHub
-workflow performs the same image build and Terraform deployment using a commit
-tag.
+The `--env production` flag is required when deploying to the main
+`azurestaticapps.net` hostname. Without it, the CLI defaults to a preview
+environment.
 
-## Credentials and Terraform variables
+## Azure infrastructure
 
-There are two supported ways to authenticate. Do not put real credentials in
-the repository, in `terraform.tfvars.example`, or in chat.
+Terraform configuration is under `infra/terraform`.
 
-### Local Terraform deployment
-
-Install the Azure CLI, then sign in and select the subscription that should
-receive the resources:
-
-```bash
-az login
-az account list --output table
-az account set --subscription "<AZURE_SUBSCRIPTION_ID_OR_NAME>"
-az account show --output table
-```
-
-Before creating the registry, register the Azure resource providers used by
-this deployment. Registration is subscription-level and may require
-**Contributor** or **Owner** permissions:
-
-```bash
-az provider register --namespace Microsoft.ContainerRegistry
-az provider register --namespace Microsoft.App
-az provider register --namespace Microsoft.OperationalInsights
-az provider register --namespace Microsoft.Storage
-
-az provider show \
-  --namespace Microsoft.ContainerRegistry \
-  --query registrationState \
-  --output tsv
-```
-
-Wait until the command prints `Registered`. If it prints `Registering`, check
-again after a short delay:
-
-```bash
-az provider show \
-  --namespace Microsoft.ContainerRegistry \
-  --query registrationState \
-  --output tsv
-```
-
-The `azurerm` provider uses this Azure CLI session locally, so no
-`client_secret` needs to be written to a file.
-
-Create your local variable file from the checked-in example:
+Create a local variables file:
 
 ```bash
 cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Edit `terraform.tfvars` and replace the placeholders:
+Set the registry, image, frontend API origin, and allowed frontend origins in
+the local file. A production configuration has this shape:
 
 ```hcl
-location                    = "eastus"
-project_name                = "pricerig"
-container_image             = "YOUR_REGISTRY.azurecr.io/pricerig-api:latest"
-container_registry_server   = "YOUR_REGISTRY.azurecr.io"
+location                  = "eastasia"
+project_name              = "sysgap"
+container_image           = "YOUR_REGISTRY.azurecr.io/sysgap-api:TAG"
+container_registry_server = "YOUR_REGISTRY.azurecr.io"
 container_registry_username = "YOUR_ACR_USERNAME"
 container_registry_password = "YOUR_ACR_PASSWORD"
+
+frontend_api_url         = "https://your-api-host.azurecontainerapps.io"
+allowed_frontend_origins = "https://your-static-app.azurestaticapps.net,https://your-domain.example"
+frontend_custom_domain  = "your-domain.example"
 ```
 
-`terraform.tfvars` is ignored by Git. The registry values can be obtained
-after creating an Azure Container Registry:
+Run:
 
 ```bash
-az acr create \
-  --resource-group "<EXISTING_OR_BOOTSTRAP_RESOURCE_GROUP>" \
-  --name "<REGISTRY_NAME>" \
-  --sku Basic
-
-az acr show --name "<REGISTRY_NAME>" \
-  --query loginServer --output tsv
-az acr credential show --name "<REGISTRY_NAME>" \
-  --query "{username:username,password:passwords[0].value}" \
-  --output json
-```
-
-Use the returned login server, username, and password in the tfvars file.
-Avoid printing the password in shared terminal logs. ACR admin credentials
-are convenient for the initial setup but are long-lived; use a dedicated
-short-lived or federated publishing identity for production CI.
-
-### Push the first API image locally
-
-For a first deployment using local Terraform, push the image before running
-`terraform apply`. Container Apps needs to pull the image when it creates the
-first revision.
-
-From the repository root, with Docker running:
-
-```bash
-RESOURCE_GROUP="rg-pricerig"
-LOCATION="eastasia"
-ACR_NAME="sysgap"
-
-az account show --output table
-az acr show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" \
-  --query loginServer --output tsv
-
-LOGIN_SERVER=$(az acr show \
-  --name "$ACR_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --query loginServer \
-  --output tsv)
-
-az acr login --name "$ACR_NAME"
-
-docker build \
-  --tag "$LOGIN_SERVER/pricerig-api:latest" \
-  ./server/backend
-
-docker push "$LOGIN_SERVER/pricerig-api:latest"
-```
-
-The build context must be `./server/backend`; that directory contains the
-Dockerfile and the generated catalog artifact. Verify the image exists:
-
-```bash
-az acr repository show \
-  --name "$ACR_NAME" \
-  --repository pricerig-api \
-  --output table
-```
-
-If `az acr login` fails, refresh `az login`, confirm the active subscription,
-and check that the ACR name is correct. If Docker reports that the daemon is
-unavailable, start Docker Desktop or the Docker service before retrying.
-
-Make the local Terraform variables match the image you pushed:
-
-```hcl
-location                    = "eastasia"
-project_name                = "sysgap"
-container_image             = "sysgap.azurecr.io/pricerig-api:latest"
-container_registry_server   = "sysgap.azurecr.io"
-container_registry_username = "YOUR_ACR_USERNAME"
-container_registry_password = "YOUR_ACR_PASSWORD"
-```
-
-Then deploy:
-
-```bash
-cd infra/terraform
 terraform init
 terraform fmt -check
 terraform validate
 terraform plan
 terraform apply
-terraform output api_url
 ```
 
-The `container_image` registry hostname and tag must match the image pushed to
-ACR. For a different registry or tag, update both the Docker tag/push command
-and `container_image`.
-
-This manual image push is only needed for local Terraform deployment. The
-GitHub Actions workflow builds and pushes a commit-tagged image before it runs
-Terraform.
-
-Run a local deployment with:
+Useful outputs:
 
 ```bash
-terraform init
-terraform plan
-terraform apply
+terraform output -raw api_url
+terraform output -raw frontend_url
+terraform output -raw frontend_deployment_token
 ```
 
-Terraform state contains resource details and must not be committed. Back up
-it using a protected remote state backend before collaborating or running
-deployments from CI.
+Azure subscriptions can restrict Static Web App regions. The default
+`frontend_location` is `eastasia`, but use a region permitted by your
+subscription if Azure returns `RequestDisallowedByAzure`.
 
-### GitHub Actions deployment
+## Custom domains
 
-The workflow at
-[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) does not read
-your local `terraform.tfvars`. Add these **Actions secrets** in the GitHub
-repository under **Settings → Secrets and variables → Actions**:
+The Terraform variable for a custom hostname is:
 
-| Secret | Value |
-|---|---|
-| `AZURE_CLIENT_ID` | Application/client ID of the Azure Entra workload identity |
-| `AZURE_TENANT_ID` | Azure Entra tenant/directory ID |
-| `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
-| `ACR_LOGIN_SERVER` | Registry server, such as `myregistry.azurecr.io` |
-| `ACR_USERNAME` | ACR publishing username |
-| `ACR_PASSWORD` | ACR publishing password/token |
+```hcl
+frontend_custom_domain = "www.example.com"
+```
 
-The Azure login step uses GitHub OIDC. Configure an Entra application or
-service principal with a federated credential whose subject matches the
-repository and workflow branch, then grant it the smallest practical scope:
+For a subdomain:
+
+1. Set `frontend_custom_domain` in local `terraform.tfvars`.
+2. Add the custom hostname to `allowed_frontend_origins`.
+3. Run `terraform apply`.
+4. Add the TXT validation record provided by Azure.
+5. Add the CNAME provided by Azure or point the subdomain to the Static Web
+   App hostname.
+6. Wait for DNS propagation and Azure validation.
+7. Test the custom HTTPS hostname.
+
+Keep the Azure fallback hostname in `allowed_frontend_origins` while migrating
+so both addresses continue to work.
+
+## GitHub Actions deployment
+
+The manual deployment workflow is:
+
+[`/.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
+
+It builds and pushes the API image, applies Terraform, injects the frontend
+API URL, and deploys `server/web` to Azure Static Web Apps.
+
+Configure these repository Actions secrets before using the workflow:
+
+```text
+AZURE_CLIENT_ID
+AZURE_TENANT_ID
+AZURE_SUBSCRIPTION_ID
+ACR_LOGIN_SERVER
+ACR_USERNAME
+ACR_PASSWORD
+AZURE_STATIC_WEB_APPS_API_TOKEN
+FRONTEND_API_URL
+ALLOWED_FRONTEND_ORIGINS
+FRONTEND_CUSTOM_DOMAIN
+```
+
+Azure login uses GitHub OIDC. Grant the identity only the permissions needed
+to deploy the resource group and push to the container registry.
+
+## Storage and runtime configuration
+
+For local development, Azure storage variables can be omitted. The local
+Compose setup stores reports in a named volume.
+
+For Azure storage, the API supports:
+
+- `AZURE_STORAGE_ACCOUNT_URL`
+- `AZURE_TABLE_ACCOUNT_URL`
+- `AZURE_BLOB_CONTAINER`
+- `AZURE_TABLE_NAME`
+
+The API CORS allowlist is configured with:
+
+```text
+SYSGAP_ALLOWED_ORIGINS
+```
+
+It must contain exact origins separated by commas, without trailing slashes.
+For example:
+
+```text
+https://your-static-app.azurestaticapps.net,https://www.example.com
+```
+
+## Testing and validation
+
+Backend tests:
 
 ```bash
-az ad app create --display-name "pricerig-github-actions"
-az ad sp create --id "<APPLICATION_CLIENT_ID>"
+PYTHONPATH=server/backend .venv/bin/python -m pytest server/backend/tests -q
 ```
 
-In the Azure Portal, add a **Federated credential** to that application with:
-
-- Organization/repository: your GitHub repository
-- Entity type: branch
-- Branch: `main` (or the branch used for deployment)
-- Audience: `api://AzureADTokenExchange`
-
-Grant the identity `Contributor` on the deployment resource group or
-subscription, and `AcrPush` on the container registry. Keep the scope at the
-resource-group level where possible. The workflow then builds an image tagged
-with the commit SHA and passes its values to Terraform through `TF_VAR_*`
-environment variables.
-
-### Preflight checklist
-
-Before deploying, verify:
-
-1. `az account show` points to the intended subscription.
-2. `Microsoft.ContainerRegistry` is `Registered`.
-3. The ACR exists and its login server is correct.
-4. `terraform.tfvars` contains no `replace-me` values.
-5. `terraform fmt -check` and `terraform validate` pass.
-6. GitHub Actions has all six secrets listed above if using CI.
-7. The selected Azure identity can create Container Apps and assign storage
-   roles.
-
-## Validation
+Client tests:
 
 ```bash
-cd server/backend
-PYTHONPATH=. pytest -q
-python -m compileall -q db shared
+cd client
+python -m pytest tests -q
 ```
+
+Python compilation:
+
+```bash
+PYTHONPATH=server/backend .venv/bin/python -m compileall -q server/backend/db server/backend/shared
+```
+
+Terraform validation:
+
+```bash
+terraform -chdir=infra/terraform fmt -check
+terraform -chdir=infra/terraform validate
+```
+
+Static Web Apps configuration:
+
+```bash
+jq empty server/web/staticwebapp.config.json
+```
+
+## License
+
+See [`LICENSE`](LICENSE).
