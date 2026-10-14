@@ -1,5 +1,11 @@
 # SysGap client-side assessment
 
+The client currently uses a lightweight Python core with a platform-provider
+boundary. Windows has detailed WMI collection; Linux and macOS currently use
+the reliable common `psutil` collection path and explicitly leave unsupported
+hardware fields unknown. The report records the provider and collection
+capabilities so missing platform data is visible rather than inferred.
+
 The client asks about the intended workload, gathers a one-time Windows
 hardware inventory, compares detectable capacity with user-supplied
 requirements or labeled purpose-profile floors, and writes a local JSON and
@@ -79,6 +85,16 @@ lets you submit the combined report to the backend. Declining keeps the local
 reports only. No benchmark, stress test, or browser-based report is used. The
 optional 10-second ambient snapshot is off by default and starts no workload.
 
+The same workflow is available through the structured CLI entry point:
+
+```sh
+python cli.py run
+python cli.py run --sample-seconds 10
+```
+
+`diagnosis.py` remains available as a compatibility entry point. The Windows
+batch launcher and the POSIX `run.sh` launcher invoke `cli.py run`.
+
 On first launch, the batch file creates an isolated `.venv` in this folder and
 installs the packages listed in `requirements.txt`; internet access is needed
 for this setup. Later launches reuse that environment. If requirements change,
@@ -98,6 +114,8 @@ selected. The local report records the selected categories and their score
 gaps; the all-component lookup data is not sent to the backend.
 If the catalog API is unavailable, the local assessment remains available;
 correct the network/API setting and rerun comparison with the saved JSON.
+Each new assessment also includes a stable `report_id`, `client_version`,
+collection provider, and collection capability map.
 
 Install dependencies before first use:
 
@@ -125,6 +143,30 @@ I/O rates, and NVIDIA GPU activity for at most 30 seconds. It does not start
 any work, stress the device, or ask the user to reproduce a problem. Its
 results are explicitly labeled as a short ambient snapshot and are not used
 to claim a workload bottleneck. The sample is disabled by default.
+
+## Run on Linux or macOS
+
+Linux and macOS use the same Python workflow and local report format. From a
+terminal:
+
+```sh
+cd client
+./run.sh
+```
+
+The launcher creates `client/.venv`, installs the platform-appropriate
+requirements, and invokes the same guided workflow as `SysGap.bat`. The
+platform-neutral inventory is intentionally conservative; detailed
+platform-specific device data will be added through providers only when it can
+be collected reliably.
+
+The client performs no network operation during collection. Catalog lookup and
+report upload remain separate, explicit opt-in actions.
+
+Upload safety controls include HTTPS enforcement (except loopback development),
+redirect blocking, rejection of embedded URL credentials, a 2 MiB request
+limit, and a 1 MiB response limit. Local-only report metadata and complete
+catalog lookup history are not included in the backend upload payload.
 
 ## SysGap catalog and optional report upload
 
@@ -263,3 +305,6 @@ Run unit tests from this folder:
 ```powershell
 python -m unittest discover -s tests -v
 ```
+
+The test suite also covers provider selection, report persistence, CLI
+delegation, upload payload boundaries, and local-only data exclusion.

@@ -82,7 +82,7 @@ Nginx :8080
 ```text
 .
 ├── assets/                 Branding assets
-├── client/                 Windows inventory and assessment client
+├── client/                 Cross-platform inventory and assessment client
 ├── docs/                   Project and deployment documentation
 ├── infra/terraform/        Azure infrastructure definitions
 ├── server/backend/         FastAPI application and catalog artifacts
@@ -118,9 +118,11 @@ WEB_PORT=9090 docker compose up --build
 
 The local API is also exposed directly at <http://localhost:8000>.
 
-## Run the Windows client
+## Run the client
 
-The client requires Windows and Python 3.10 or newer.
+The client requires Python 3.10 or newer. Windows has detailed WMI inventory;
+Linux and macOS use the conservative common inventory provider, with
+unsupported fields reported as unknown.
 
 ```powershell
 cd client
@@ -130,8 +132,24 @@ python -m pip install -r requirements.txt
 python collector.py
 ```
 
+On Linux or macOS, use the launcher:
+
+```bash
+cd client
+./run.sh
+```
+
+The structured CLI entry point is also available on every platform:
+
+```bash
+python cli.py run
+```
+
 The client collects hardware inventory and creates a local report. Upload is
 disabled unless explicitly requested.
+
+Client uploads enforce HTTPS (except loopback development), block redirects,
+bound request and response sizes, and exclude local-only catalog lookup data.
 
 To upload to an API:
 

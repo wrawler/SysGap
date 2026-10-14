@@ -33,7 +33,12 @@ def _run(command: Sequence[str], label: str) -> int:
         return 1
 
 
-def main() -> int:
+def run_workflow(
+    *,
+    output_dir: Path | None = None,
+    sample_seconds: int | None = None,
+) -> int:
+    output_dir = output_dir or REPORT_DIR
     if sys.version_info < (3, 10):
         print("[ERROR] SysGap requires Python 3.10 or newer.", file=sys.stderr)
         return 1
@@ -48,15 +53,20 @@ def main() -> int:
         "  Assessment is local until you explicitly consent to upload.\n"
         "  No benchmark, stress test, or browser-based report is used.\n"
     )
-    sample_answer = input(
-        "  Include a 10-second ambient activity sample? [y/N]: "
-    ).strip().casefold()
+    if sample_seconds is None:
+        sample_answer = input(
+            "  Include a 10-second ambient activity sample? [y/N]: "
+        ).strip().casefold()
+        sample_seconds = 10 if sample_answer in {"y", "yes"} else 0
+    elif not 0 <= sample_seconds <= 30:
+        print("[ERROR] --sample-seconds must be between 0 and 30.", file=sys.stderr)
+        return 1
 
     try:
-        REPORT_DIR.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
         before = {
             path.resolve()
-            for path in REPORT_DIR.glob("assessment_*.json")
+            for path in output_dir.glob("assessment_*.json")
         }
     except OSError as error:
         print(f"[ERROR] Could not access the reports directory: {error}", file=sys.stderr)
@@ -69,16 +79,16 @@ def main() -> int:
         sys.executable,
         str(CLIENT_DIR / "collector.py"),
         "--output-dir",
-        str(REPORT_DIR),
+        str(output_dir),
     ]
-    if sample_answer in {"y", "yes"}:
-        collector_command.extend(["--sample-seconds", "10"])
+    if sample_seconds:
+        collector_command.extend(["--sample-seconds", str(sample_seconds)])
     collection_status = _run(collector_command, "Collecting and scoring this PC")
     if collection_status != 0:
         return collection_status
 
     try:
-        report_path = _created_assessment(before, REPORT_DIR)
+        report_path = _created_assessment(before, output_dir)
     except (OSError, RuntimeError) as error:
         print(f"[ERROR] {error}", file=sys.stderr)
         return 1
@@ -110,6 +120,10 @@ def main() -> int:
     print(f"\n  Local JSON/text reports: {REPORT_DIR}")
     print("  Completed. Any backend upload was made only after your consent.")
     return 0
+
+
+def main() -> int:
+    return run_workflow()
 
 
 if __name__ == "__main__":

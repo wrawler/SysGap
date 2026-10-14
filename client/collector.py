@@ -5,19 +5,21 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import os
 import sys
 import uuid
 from pathlib import Path
 from typing import Any
 
 from api_client import upload_report
+from config import ClientConfig
 from decision_engine import evaluate_assessment
 from hardware_inventory import collect_inventory
 from passive_sample import collect_passive_sample
 from questionnaire import run_questionnaire
+from report_repository import write_report
 
 SCHEMA_VERSION = 1
+CLIENT_VERSION = "0.2.0"
 
 
 def _render(report: dict[str, Any]) -> str:
@@ -240,14 +242,7 @@ def _render(report: dict[str, Any]) -> str:
 
 
 def _write_reports(report: dict[str, Any], output_dir: Path) -> tuple[Path, Path]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    suffix = uuid.uuid4().hex[:8]
-    json_path = output_dir / f"assessment_{stamp}_{suffix}.json"
-    text_path = output_dir / f"assessment_{stamp}_{suffix}.txt"
-    json_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    text_path.write_text(_render(report), encoding="utf-8")
-    return json_path, text_path
+    return write_report(report, output_dir, _render)
 
 
 def _ask_upload() -> bool:
@@ -270,7 +265,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--api-url",
-        default=os.environ.get("SYSGAP_REPORT_API_URL"),
+        default=ClientConfig.from_environment().report_api_url,
         help="Full HTTPS report endpoint; alternatively set SYSGAP_REPORT_API_URL.",
     )
     parser.add_argument(
@@ -309,6 +304,8 @@ def main() -> int:
         )
     report = {
         "schema_version": SCHEMA_VERSION,
+        "client_version": CLIENT_VERSION,
+        "report_id": uuid.uuid4().hex,
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "questionnaire": questionnaire,
         "hardware": hardware,

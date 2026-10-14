@@ -8,18 +8,18 @@ import datetime as dt
 import hashlib
 import json
 import math
-import os
 import sys
 from pathlib import Path
 from typing import Any
 
 from api_client import upload_report
+from config import ClientConfig
 from catalog_client import (
-    DEFAULT_API_BASE_URL,
     select_remote_candidates,
 )
 from candidate_engine import CATALOG_DIRS, select_candidates
 from collector import _render
+from report_repository import write_report
 
 
 def _read_json(path: Path) -> tuple[dict[str, Any], bytes]:
@@ -117,7 +117,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--api-url",
-        default=os.environ.get("SYSGAP_API_BASE_URL", DEFAULT_API_BASE_URL),
+        default=ClientConfig.from_environment().api_base_url,
         help="SysGap API base URL; defaults to the deployed service or SYSGAP_API_BASE_URL.",
     )
     parser.add_argument("--limit", type=int, default=2, help="Maximum upgrade options per component (1-2).")
@@ -208,9 +208,11 @@ def main() -> int:
     output_json = args.report.with_name(f"{args.report.stem}_with_recommendations.json")
     output_text = output_json.with_suffix(".txt")
     try:
-        output_json.write_text(
-            json.dumps(report, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
+        output_json, output_text = write_report(
+            report,
+            output_json.parent,
+            _render,
+            stem=output_json.stem,
         )
         output_text.write_text(_render(report), encoding="utf-8")
     except OSError as error:

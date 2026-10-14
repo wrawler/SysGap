@@ -57,7 +57,7 @@ if not exist ".venv\.sysgap-dependencies-installed" (
 )
 
 echo.
-".venv\Scripts\python.exe" diagnosis.py
+".venv\Scripts\python.exe" cli.py run %*
 set "RESULT=%ERRORLEVEL%"
 echo.
 if not "%RESULT%"=="0" (

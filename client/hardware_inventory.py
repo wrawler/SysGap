@@ -10,6 +10,8 @@ from typing import Any
 
 import psutil
 
+from platform_provider import InventoryProvider
+
 GIB = 1024**3
 
 
@@ -59,6 +61,32 @@ def _chassis_category(values: Any) -> str:
     if is_desktop == is_laptop:
         return "unknown"
     return "desktop" if is_desktop else "laptop"
+
+
+class _WindowsInventoryProvider:
+    name = "windows-wmi"
+
+    def collect(self, notes: list[str]) -> dict[str, Any]:
+        return _windows_inventory(notes)
+
+
+class _CommonInventoryProvider:
+    name = "common-psutil"
+
+    def collect(self, notes: list[str]) -> dict[str, Any]:
+        notes.append(
+            "Platform-specific hardware inventory is not available on this platform; "
+            "common memory and volume readings are used."
+        )
+        return {
+            "computer": None,
+            "cpu": None,
+            "gpus": [],
+            "memory_modules": [],
+            "physical_disks": [],
+            "motherboard": None,
+            "bios": None,
+        }
 
 
 def _windows_inventory(notes: list[str]) -> dict[str, Any]:
@@ -154,10 +182,17 @@ def _windows_inventory(notes: list[str]) -> dict[str, Any]:
     return result
 
 
+def _platform_provider() -> InventoryProvider:
+    if os.name == "nt":
+        return _WindowsInventoryProvider()
+    return _CommonInventoryProvider()
+
+
 def collect_inventory() -> tuple[dict[str, Any], list[str]]:
     """Collect inventory only; this does not start a workload or stress test."""
     notes: list[str] = []
-    windows = _windows_inventory(notes)
+    provider = _platform_provider()
+    platform_inventory = provider.collect(notes)
 
     try:
         memory = psutil.virtual_memory()
@@ -192,20 +227,20 @@ def collect_inventory() -> tuple[dict[str, Any], list[str]]:
     except (OSError, RuntimeError) as error:
         notes.append(f"Storage volumes unavailable ({type(error).__name__}).")
 
-    if not windows["physical_disks"]:
+    if not platform_inventory["physical_disks"]:
         notes.append("Physical disk models/types were not detected; volume data alone cannot identify drive type.")
-    if any(gpu["dedicated_memory_gib"] is None for gpu in windows["gpus"]):
-        notes.append("Windows did not provide valid dedicated-memory data for every GPU; no value was inferred.")
+    if any(gpu["dedicated_memory_gib"] is None for gpu in platform_inventory["gpus"]):
+        notes.append("Dedicated GPU memory was unavailable for at least one adapter; no value was inferred.")
 
-    memory_modules = windows.pop("memory_modules", [])
-    physical_disks = windows.pop("physical_disks", [])
+    memory_modules = platform_inventory.pop("memory_modules", [])
+    physical_disks = platform_inventory.pop("physical_disks", [])
     inventory = {
         "operating_system": {
             "name": platform.system(),
             "release": platform.release(),
             "architecture": platform.machine(),
         },
-        **windows,
+        **platform_inventory,
         "memory": {
             "summary": memory_summary,
             "modules": memory_modules,
@@ -216,5 +251,11 @@ def collect_inventory() -> tuple[dict[str, Any], list[str]]:
         },
         "collected_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "collection_mode": "one-time inventory; no benchmark or stress test",
+        "collection_provider": provider.name,
+        "collection_capabilities": {
+            "platform_specific_hardware": provider.name != "psutil-common",
+            "memory_totals": memory_summary is not None,
+            "volume_capacity": bool(volumes),
+        },
     }
     return inventory, notes

@@ -8,6 +8,9 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+MAX_RESPONSE_BYTES = 1024 * 1024
+
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -39,16 +42,21 @@ def upload_report(url: str, report: dict[str, Any], timeout: float = 8.0) -> dic
             "recommendations": report.get("recommendations", []),
         },
     }
+    encoded_payload = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    if len(encoded_payload) > MAX_UPLOAD_BYTES:
+        raise ValueError("Report is too large to upload safely.")
     request = urllib.request.Request(
         url,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        data=encoded_payload,
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         method="POST",
     )
     try:
         opener = urllib.request.build_opener(_NoRedirectHandler())
         with opener.open(request, timeout=timeout) as response:
-            body = response.read(1024 * 1024)
+            body = response.read(MAX_RESPONSE_BYTES + 1)
+            if len(body) > MAX_RESPONSE_BYTES:
+                raise RuntimeError("API response is too large to process safely.")
             if response.status < 200 or response.status >= 300:
                 raise RuntimeError(f"API returned HTTP {response.status}.")
     except urllib.error.HTTPError as error:
