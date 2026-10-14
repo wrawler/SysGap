@@ -48,6 +48,9 @@ class ApiClientTests(unittest.TestCase):
         self.assertEqual(request.get_header("Content-type"), "application/json")
         posted = json.loads(request.data)
         self.assertEqual(posted["telemetry"]["recommendations"][0]["component"], "ram")
+        self.assertNotIn("report_id", posted)
+        self.assertNotIn("client_version", posted)
+        self.assertNotIn("catalog_lookup_results", posted)
 
     @patch("api_client.urllib.request.build_opener")
     def test_resolves_relative_report_url_to_absolute_api_url(self, build_opener):
@@ -77,6 +80,16 @@ class ApiClientTests(unittest.TestCase):
             result["report_url"],
             "https://api.example.test/api/v1/reports/abcd1234",
         )
+
+    def test_rejects_oversized_upload(self):
+        report = {
+            "schema_version": 1,
+            "questionnaire": {"purpose": "gaming"},
+            "hardware": {"details": "x" * (2 * 1024 * 1024)},
+            "assessment": {},
+        }
+        with self.assertRaises(ValueError):
+            upload_report("https://example.com/api/v1/reports", report)
 
 
 if __name__ == "__main__":
