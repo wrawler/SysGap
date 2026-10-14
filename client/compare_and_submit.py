@@ -34,11 +34,16 @@ def _read_json(path: Path) -> tuple[dict[str, Any], bytes]:
     return value, raw
 
 
-def _consent() -> bool:
+def _consent(*, advanced_sharing: bool = False) -> bool:
+    detail_text = (
+        "Detailed hardware, questionnaire, and ambient sample data will be included."
+        if advanced_sharing
+        else "Only coarse hardware capacity, structured workload data, and compact findings will be included."
+    )
     print(
         "\nUPLOAD CONSENT\n"
-        "The backend will receive your questionnaire answers, detected "
-        "hardware, assessment, and the two highest-gap component shortlists.\n"
+        f"{detail_text}\n"
+        "The two highest-gap component shortlists will also be included.\n"
         "No upload occurs unless you explicitly agree."
     )
     answer = input("Submit this combined report to the SysGap backend? [y/N]: ").strip().casefold()
@@ -123,6 +128,11 @@ def main() -> int:
     )
     parser.add_argument("--limit", type=int, default=2, help="Maximum upgrade options per component (1-2).")
     parser.add_argument("--upload", action="store_true", help="Ask consent and upload after saving the merged report.")
+    parser.add_argument(
+        "--share-details",
+        action="store_true",
+        help="With --upload, include detailed hardware and questionnaire data.",
+    )
     parser.add_argument("--no-color", action="store_true", help="Disable styled terminal output.")
     parser.add_argument("--verbose", action="store_true", help="Show detailed catalog lookup output.")
     args = parser.parse_args()
@@ -247,7 +257,7 @@ def main() -> int:
             "utilization rule. Inventory-only reports contain no workload utilization, "
             "so its stored diagnosis may be misleading; no utilization values will be invented."
         )
-        if not _consent():
+        if not _consent(advanced_sharing=args.share_details):
             output.print("Upload cancelled; local reports were retained.")
             return 0
         try:
@@ -255,7 +265,11 @@ def main() -> int:
             backend_report = copy.deepcopy(report)
             backend_report["recommendations"] = selected_recommendations
             backend_report.pop("catalog_lookup_results", None)
-            response = upload_report(report_endpoint, backend_report)
+            response = upload_report(
+                report_endpoint,
+                backend_report,
+                advanced_sharing=args.share_details,
+            )
         except (RuntimeError, ValueError) as error:
             output.print(f"[red]Report upload failed:[/red] {error}", file=sys.stderr)
             return 2

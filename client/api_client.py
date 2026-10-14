@@ -28,9 +28,67 @@ def _validate_url(url: str) -> None:
         raise ValueError("API URL must be an absolute URL.")
 
 
-def upload_report(url: str, report: dict[str, Any], timeout: float = 8.0) -> dict[str, Any]:
-    _validate_url(url)
-    payload = {
+def _minimal_upload_payload(report: dict[str, Any]) -> dict[str, Any]:
+    hardware = report.get("hardware") or {}
+    cpu = hardware.get("cpu") or {}
+    memory = hardware.get("memory") or {}
+    memory_summary = memory.get("summary") or {}
+    gpus = hardware.get("gpus") or []
+    storage = hardware.get("storage") or {}
+    volumes = storage.get("volumes") or []
+    questionnaire = report.get("questionnaire") or {}
+    assessment = report.get("assessment") or {}
+    findings = assessment.get("findings") or []
+    return {
+        "schema_version": report["schema_version"],
+        "task": questionnaire.get("purpose"),
+        "hardware": {
+            "cpu_physical_cores": cpu.get("physical_cores"),
+            "cpu_logical_processors": cpu.get("logical_processors"),
+            "ram_total_gib": memory_summary.get("total_gib"),
+            "gpu_count": len(gpus),
+            "gpu_dedicated_memory_gib": [
+                gpu.get("dedicated_memory_gib") for gpu in gpus
+            ],
+            "free_storage_gib": [
+                volume.get("free_gib_at_scan") for volume in volumes
+            ],
+        },
+        "telemetry": {
+            "kind": "inventory_assessment",
+            "questionnaire": {
+                key: questionnaire.get(key)
+                for key in (
+                    "purpose",
+                    "symptom",
+                    "preset_id",
+                    "preset_data_version",
+                    "context",
+                    "effective_requirements",
+                    "requirement_sources",
+                )
+                if questionnaire.get(key) is not None
+            },
+            "assessment": {
+                "overall_status": assessment.get("overall_status"),
+                "summary": assessment.get("summary"),
+                "findings": [
+                    {
+                        key: finding.get(key)
+                        for key in ("status", "title", "area", "confidence", "next_step")
+                        if finding.get(key) is not None
+                    }
+                    for finding in findings
+                    if isinstance(finding, dict)
+                ],
+            },
+            "recommendations": report.get("recommendations", []),
+        },
+    }
+
+
+def _full_upload_payload(report: dict[str, Any]) -> dict[str, Any]:
+    return {
         "schema_version": report["schema_version"],
         "task": report["questionnaire"]["purpose"],
         "hardware": report["hardware"],
@@ -42,6 +100,21 @@ def upload_report(url: str, report: dict[str, Any], timeout: float = 8.0) -> dic
             "recommendations": report.get("recommendations", []),
         },
     }
+
+
+def upload_report(
+    url: str,
+    report: dict[str, Any],
+    timeout: float = 8.0,
+    *,
+    advanced_sharing: bool = False,
+) -> dict[str, Any]:
+    _validate_url(url)
+    payload = (
+        _full_upload_payload(report)
+        if advanced_sharing
+        else _minimal_upload_payload(report)
+    )
     encoded_payload = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     if len(encoded_payload) > MAX_UPLOAD_BYTES:
         raise ValueError("Report is too large to upload safely.")
